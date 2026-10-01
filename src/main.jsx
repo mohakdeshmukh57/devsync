@@ -78,7 +78,30 @@ function App(){
   async function deleteFile(id){const f=files.find(x=>x.id===id);if(!f||!confirm(`Delete ${f.name}?`))return;const {error}=await supabase.from('files').delete().eq('id',id);if(error)return note(error.message);setFiles(old=>old.filter(x=>x.id!==id));if(activeId===id){setActiveId(null);setContent('');setPreview('');}setCtx(null);}
   async function renameFile(){if(!ctx?.fileId)return;const f=files.find(x=>x.id===ctx.fileId);if(!f||!rename.trim())return;const lang=(Object.entries(LANGS).find(([,v])=>rename.toLowerCase().endsWith('.'+v[1]))||[])[0]||f.language;const {error}=await supabase.from('files').update({name:rename.trim(),language:lang,updated_at:new Date().toISOString()}).eq('id',f.id);if(error)return note(error.message);setFiles(old=>old.map(x=>x.id===f.id?{...x,name:rename.trim(),language:lang}:x));setRenameOpen(false);setCtx(null);}
   async function duplicateFile(){if(!ctx?.fileId)return;const f=files.find(x=>x.id===ctx.fileId);if(!f)return;const dot=f.name.lastIndexOf('.');const base=dot>-1?f.name.slice(0,dot):f.name;const ext=dot>-1?f.name.slice(dot):'';const {data,error}=await supabase.from('files').insert({meeting_id:meeting.id,name:base+'-copy'+ext,language:f.language,content:f.content,path:'/',created_by:session.user.id}).select('*').single();if(!error&&data)setFiles(old=>[...old,data]);setCtx(null);}
-  function renderPreview(changedId,changed){const all=files.map(f=>f.id===changedId?{...f,content:changed}:f);const html=all.find(f=>f.language==='html');if(!html){setPreview('');return;}let doc=html.content;for(const f of all.filter(x=>x.language==='css')){const n=f.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const tag=`<style>${f.content}</style>`;const re=new RegExp(`<link[^>]*href=["']${n}["'][^>]*>`,'i');doc=re.test(doc)?doc.replace(re,tag):doc.replace(/<\\/head>/i,tag+'</head>');}for(const f of all.filter(x=>x.language==='javascript')){const n=f.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const tag=`<script>${f.content.replace(/<\\/script>/gi,'<\\/script>')}</script>`;const re=new RegExp(`<script[^>]*src=["']${n}["'][^>]*><\\/script>`,'i');doc=re.test(doc)?doc.replace(re,tag):doc.replace(/<\\/body>/i,tag+'</body>');}setPreview(doc);}
+  
+  function renderPreview(changedId,changed){
+    const all=files.map(f=>f.id===changedId?{...f,content:changed}:f);
+    const html=all.find(f=>f.language==='html');
+    if(!html){setPreview('');return;}
+    let doc=html.content;
+    
+    for(const f of all.filter(x=>x.language==='css')){
+      const n=f.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      const tag=`<style>${f.content}</style>`;
+      const re=new RegExp(`<link[^>]*href=["']${n}["'][^>]*>`,'i');
+      doc=re.test(doc)?doc.replace(re,tag):doc.replace(/<\/head>/i,tag+'</'+'head>');
+    }
+    
+    for(const f of all.filter(x=>x.language==='javascript')){
+      const n=f.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      const tag=`<script>${f.content.replace(/<\/script>/gi,'<\/'+'script>')}</script>`;
+      const re=new RegExp(`<script[^>]*src=["']${n}["'][^>]*><\/script>`,'i');
+      doc=re.test(doc)?doc.replace(re,tag):doc.replace(/<\/body>/i,tag+'<\/'+'body>');
+    }
+    
+    setPreview(doc);
+  }
+
   async function sendChat(){if(!chatText.trim())return;const payload={name:userName,message:chatText.trim()};setChat(old=>[...old,payload]);await realtimeRef.current?.send({type:'broadcast',event:'chat',payload});setChatText('');}
   const inviteLink=meeting?`${location.origin}/meeting/${meeting.id}?invite=${meeting.invite_token}`:'';
 
@@ -88,7 +111,7 @@ function App(){
   return <Meeting profile={profile} meeting={meeting} files={files} active={activeFile} content={content} onChange={updateContent} onSelect={openFile} createFile={()=>setFileOpen(true)} run={()=>note('Web languages update in the live preview. Server execution will be added next.')} invite={()=>setInviteOpen(true)} inviteLink={inviteLink} copyInvite={async()=>{await navigator.clipboard?.writeText(inviteLink);note('Invite link copied')}} onLeave={()=>{setScreen('dashboard');setMeeting(null);setActiveId(null);realtimeRef.current?.unsubscribe()}} onContext={(e,id)=>{e.preventDefault();setCtx({x:e.clientX,y:e.clientY,fileId:id})}} ctx={ctx} closeCtx={()=>setCtx(null)} rename={()=>{const f=files.find(x=>x.id===ctx?.fileId);if(f){setRename(f.name);setRenameOpen(true)}}} duplicate={duplicateFile} del={()=>ctx?.fileId&&deleteFile(ctx.fileId)} chatOpen={chatOpen} setChatOpen={setChatOpen} chat={chat} chatText={chatText} setChatText={setChatText} sendChat={sendChat} preview={preview} createOpen={fileOpen} setCreateOpen={setFileOpen} fileName={fileName} setFileName={setFileName} fileLang={fileLang} setFileLang={setFileLang} doCreate={createFile} renameOpen={renameOpen} setRenameOpen={setRenameOpen} rename={rename} setRename={setRename} doRename={renameFile} inviteOpen={inviteOpen} setInviteOpen={setInviteOpen}/>;
 }
 
-function Landing(p){return <div><nav className="nav"><div className="brand"><span className="logo">&lt;/&gt;</span>DevSync</div><div className="navlinks"><a href="#features">Features</a><a href="#features">Pricing</a><a href="#features">Docs</a><a href="#features">Blog</a></div><div className="navactions"><button className="btn" onClick={()=>p.setMode('login')}>Log In</button><button className="btn primary" onClick={()=>p.setMode('register')}>Get Started Free</button></div></nav><section className="hero"><div><div className="eyebrow">● Build Together. In Real Time.</div><h1>The All-in-One<br/><span className="gradient">Collaborative Coding</span><br/>Workspace</h1><p>Code, chat, run, and build together — with real-time collaboration, meetings, live preview and a clean shared workspace.</p><div className="heroBtns"><button className="btn primary" onClick={()=>p.setMode('register')}>Start Building Free →</button><button className="btn" onClick={()=>document.getElementById('features')?.scrollIntoView({behavior:'smooth'})}>▷ Explore</button></div></div><div className="hero-mock"><div className="mock-top"><b>DevSync</b><span>Project workspace</span><span className="live">● Live</span></div><div className="mock-body"><aside><b>Files</b><div>⌄ src</div><div className="indent">App.tsx</div><div className="indent">Preview.tsx</div><div>package.json</div></aside><div className="mock-code"><div className="mock-tabs">Home.tsx ×　 Preview.tsx　 + New</div><pre>{`const App = () => {
+function Landing(p){return <div><nav className="nav"><div className="brand"><span className="logo">&lt;/&gt;</span>DevSync</div><div className="navlinks"><a href="#features">Features</a><a href="#features">Pricing</a><a href="#features">Docs</a><a href="#features">Blog</a></div><div className="navactions"><button className="btn" onClick={()=>p.setMode('login')}>Log In</button><button className="btn primary" onClick={()=>p.setMode('register')}>Get Started Free</button></div></nav><section className="hero"><div><div className="eyebrow">● Build Together. In Real Time.</div><h1>The All-in-One<br/><span className="gradient">Collaborative Coding</span><br/>Workspace</h1><p>Code, chat, run, and build together — with real-time collaboration, meetings, live preview and a clean shared workspace.</p><div className="heroBtns"><button className="btn primary" onClick={()=>p.setMode('register')}>Start Building Free →</button><button className="btn" onClick={()=>document.getElementById('features')?.scrollIntoView({behavior:'smooth'})}>▷ Explore</button></div></div><div className="hero-mock"><div className="mock-top"><b>DevSync</b><span>Project workspace</span><span className="live">● Live</span></div><div className="mock-body"><aside><b>Files</b><div>⌄ src</div><div className="indent">App.tsx</div><div className="indent">Preview.tsx</div><div>package.json</div></aside><div className="mock-code"><div className="mock-tabs">Home.tsx ×  Preview.tsx  + New</div><pre>{`const App = () => {
   return (
     <main>
       <h1>Build together.</h1>
