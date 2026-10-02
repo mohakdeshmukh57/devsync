@@ -18,3 +18,7 @@ Run `supabase/schema.sql` once in the Supabase SQL Editor.
 - Live team presence, line numbers, Tab indent, Ctrl/Cmd+S, file download, toasts
 - Fixed: remote edits not reaching the open editor, and being sent to the dashboard on token refresh
 - New `pro-theme.css` with smoother animations
+- Run JavaScript and Python (Pyodide) in the browser with an output console
+- Command palette (Ctrl/Cmd+K), editor tabs, file filter, upload files, download ZIP, Format, settings, auto-close brackets, auto-indent, status bar
+- Preview: device sizes, refresh, open in new tab; file list syncs live between collaborators
+- Dashboard: search, rename, delete, copy invite link
