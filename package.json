@@ -1,7 +1,7 @@
 {
   "name": "devsync",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,8 @@
     "@supabase/supabase-js": "^2.57.0",
     "jszip": "^3.10.2",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "yjs": "^13.6.27"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.4",
