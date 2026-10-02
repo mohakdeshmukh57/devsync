@@ -170,19 +170,105 @@ function App(){
   }
 
   async function logout(){
-    setGlobalBusy(true);showToast('Signing you out…');
-    await new Promise(r=>setTimeout(r,250));
-    await cleanupMeeting();
-    await supabase?.auth.signOut();
-    setMeeting(null);setFiles([]);setFolders([]);setActiveId(null);setScreen('landing');setGlobalBusy(false);
+    setGlobalBusy(true);
+    showToast('Signing you out…');
+
+    try{
+      await new Promise(r=>setTimeout(r,180));
+      await cleanupMeeting();
+      const {error}=await supabase?.auth.signOut();
+
+      if(error){
+        showToast(error.message);
+        return;
+      }
+
+      setMeeting(null);
+      setFiles([]);
+      setFolders([]);
+      setActiveId(null);
+      setSecondId(null);
+      setContent('');
+      setPreview('');
+      setChat([]);
+      setScreen('landing');
+      history.replaceState(null,'','/');
+    }catch(error){
+      console.error('DevSync logout failed:',error);
+      showToast(error?.message||'Unable to log out. Please try again.');
+    }finally{
+      setGlobalBusy(false);
+    }
   }
 
   async function createMeeting(){
-    if(!meetingName.trim()) return showToast('Give your meeting a name first.');
+    const name=meetingName.trim();
+    if(!name){
+      showToast('Give your meeting a name first.');
+      return;
+    }
+
+    if(!session?.user?.id){
+      showToast('Your session has expired. Please sign in again.');
+      setScreen('landing');
+      setAuthOpen(true);
+      return;
+    }
+
     setGlobalBusy(true);
-    const {data,error}=await supabase.rpc('create_meeting',{p_name:meetingName.trim()});
-    if(error){setGlobalBusy(false);return showToast(error.message);}
-    setCreateOpen(false);setMeetingName('');await loadMeetings();await openMeeting(data,false);setGlobalBusy(false);
+
+    try{
+      // Prefer a direct insert so the UI does not depend on the RPC being
+      // present in an older Supabase schema cache.
+      const {data:created,error:createError}=await supabase
+        .from('meetings')
+        .insert({
+          name,
+          owner_id:session.user.id
+        })
+        .select('*')
+        .single();
+
+      if(createError){
+        // Fall back to the transactional RPC when the database policy expects it.
+        const {data:rpcId,error:rpcError}=await supabase.rpc('create_meeting',{p_name:name});
+        if(rpcError){
+          console.error('Meeting creation failed:',{createError,rpcError});
+          throw new Error(rpcError.message||createError.message||'Unable to create meeting.');
+        }
+
+        setCreateOpen(false);
+        setMeetingName('');
+        await loadMeetings();
+        await openMeeting(rpcId,false);
+        return;
+      }
+
+      // Direct insert path: add the owner membership explicitly.
+      const {error:memberError}=await supabase
+        .from('meeting_members')
+        .insert({
+          meeting_id:created.id,
+          user_id:session.user.id,
+          role:'owner'
+        });
+
+      if(memberError){
+        // Roll back the meeting if membership insertion failed.
+        await supabase.from('meetings').delete().eq('id',created.id);
+        throw new Error(memberError.message||'Unable to add you to the new meeting.');
+      }
+
+      setCreateOpen(false);
+      setMeetingName('');
+      await loadMeetings();
+      await openMeeting(created.id,false);
+    }catch(error){
+      console.error('DevSync create meeting failed:',error);
+      showToast(error?.message||'Unable to create meeting.');
+    }finally{
+      setGlobalBusy(false);
+    }
   }
 
   async function openMeeting(id,isTV=false){
@@ -251,13 +337,39 @@ function App(){
   }
 
   async function cleanupMeeting(){
-    fileCleanupRef.current?.dispose?.();fileCleanupRef.current?.();fileCleanupRef.current=null;
+    try{
+      const cleanup=fileCleanupRef.current;
+      fileCleanupRef.current=null;
+      if(typeof cleanup==='function') cleanup();
+      else cleanup?.dispose?.();
+    }catch(error){
+      console.warn('DevSync file cleanup failed:',error);
+    }
+
     collabRef.current=null;
     clearTimeout(saveTimer.current);
-    await callRef.current?.stop();callRef.current=null;
-    mediaRef.current?.getTracks().forEach(t=>t.stop());mediaRef.current=null;
-    cameraTrackRef.current=null;setMediaReady(false);setCallPeers([]);
-    await realtimeRef.current?.unsubscribe();realtimeRef.current=null;
+
+    try{
+      await callRef.current?.stop();
+    }catch(error){
+      console.warn('DevSync call cleanup failed:',error);
+    }finally{
+      callRef.current=null;
+    }
+
+    mediaRef.current?.getTracks().forEach(t=>t.stop());
+    mediaRef.current=null;
+    cameraTrackRef.current=null;
+    setMediaReady(false);
+    setCallPeers([]);
+
+    try{
+      await realtimeRef.current?.unsubscribe();
+    }catch(error){
+      console.warn('DevSync realtime cleanup failed:',error);
+    }finally{
+      realtimeRef.current=null;
+    }
   }
 
   function leaveMeeting(){
