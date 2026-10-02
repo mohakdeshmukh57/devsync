@@ -97,6 +97,3 @@ After Vercel deployment succeeds, add your domain in:
 Vercel → Project → Settings → Domains
 
 Then point your domain's DNS records to Vercel as shown by the dashboard.
-
-## Meeting creation repair
-If creating a meeting reports a permission/RPC/function error, run `supabase/repair_meetings.sql` once in the Supabase SQL Editor. It makes the meeting and membership policies compatible with both the direct-insert and RPC creation paths used by the app.
