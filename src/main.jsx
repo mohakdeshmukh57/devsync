@@ -1,807 +1,685 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createClient } from '@supabase/supabase-js';
 import JSZip from 'jszip';
-import { openCollaborativeFile } from './lib/collab';
+import { supabase, toast } from './lib/supabase';
 import { CallRoom } from './lib/webrtc';
+import { LANGS, EXT_LANG, DEFAULT_SETTINGS, extOf, langFromName, isTextName } from './lib/constants';
+import { buildPreview, pickPreviewFile, runJavaScript, runPython, stopRun, formatSource, SERVER_LANGS, runOnServer } from './lib/runner';
+import { Toasts, Loading, Setup } from './components/common';
+import Landing from './components/Landing';
+import Dashboard from './components/Dashboard';
+import Workspace, { TVScreen } from './components/Workspace';
 import './styles.css';
 import './pro-theme.css';
+import './app.css';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
-const LANGS = {
-  html:['HTML','html'], css:['CSS','css'], javascript:['JavaScript','js'], typescript:['TypeScript','ts'],
-  python:['Python','py'], java:['Java','java'], c:['C','c'], cpp:['C++','cpp'], csharp:['C#','cs'], go:['Go','go'],
-  rust:['Rust','rs'], php:['PHP','php'], ruby:['Ruby','rb'], swift:['Swift','swift'], kotlin:['Kotlin','kt'], dart:['Dart','dart'],
-  sql:['SQL','sql'], json:['JSON','json'], yaml:['YAML','yaml'], markdown:['Markdown','md'], shell:['Shell','sh'], plaintext:['Plain Text','txt']
-};
+// Turns raw Postgres/PostgREST errors into something actionable.
+function explain(error) {
+  const msg = error?.message || String(error || 'Something went wrong.');
+  if (/recursion|schema cache|does not exist|permission denied|row-level security|could not find the function/i.test(msg)) {
+    return `${msg} — Run supabase/setup.sql once in the Supabase SQL editor (see README).`;
+  }
+  return msg;
+}
 
-const TEXT_EXTENSIONS = new Set(Object.values(LANGS).map(([,ext]) => ext));
-const DEFAULT_SETTINGS = { fs: 13, tab: 2, pair: true };
-const PAIRS = {'(':')','[':']','{':'}','"':'"',"'":"'",'`':'`'};
+async function getMedia() {
+  if (!navigator.mediaDevices?.getUserMedia) return null;
+  for (const constraints of [{ audio: true, video: true }, { audio: true }, { video: true }]) {
+    try { return await navigator.mediaDevices.getUserMedia(constraints); } catch { /* try the next option */ }
+  }
+  return null;
+}
 
-const FEATURES=[
-  ['Real-Time Collaboration','Edit the same file together with presence and shared cursors.','⚡'],
-  ['Live Preview & Output','HTML, CSS and JavaScript render live in a sandboxed preview.','◐'],
-  ['TV / Room Mode','Use a second screen for clean project output while you code.','▣'],
-  ['Invite Links','Share one secure meeting link with your collaborators.','↗'],
-  ['Team Chat','Discuss implementation without opening another app.','✉'],
-  ['Video & Audio Meetings','Use the browser camera and microphone in the workspace.','●'],
-  ['Shared Terminal','Run supported code and terminal commands through a sandboxed runner.','>_'],
-  ['Multiple Code Panels','Split the editor to inspect two files at once.','▦'],
-  ['Project Storage','Keep code in Postgres and binary assets in private Storage.','◫'],
-  ['Command Palette','Jump to files and workspace commands with Ctrl/Cmd + K.','⌘'],
-];
+function App() {
+  const [session, setSession] = useState(undefined); // undefined = still checking
+  const [profile, setProfile] = useState(null);
+  const [screen, setScreen] = useState('landing');
+  const [authMode, setAuthMode] = useState('login');
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-function App(){
-  const [session,setSession]=useState(null);
-  const [profile,setProfile]=useState(null);
-  const [screen,setScreen]=useState('landing');
-  const [authMode,setAuthMode]=useState('login');
-  const [authOpen,setAuthOpen]=useState(false);
-  const [authError,setAuthError]=useState('');
-  const [authBusy,setAuthBusy]=useState(false);
-  const [meetings,setMeetings]=useState([]);
-  const [meeting,setMeeting]=useState(null);
-  const [files,setFiles]=useState([]);
-  const [folders,setFolders]=useState([]);
-  const [activeId,setActiveId]=useState(null);
-  const [content,setContent]=useState('');
-  const [createOpen,setCreateOpen]=useState(false);
-  const [folderOpen,setFolderOpen]=useState(false);
-  const [renameOpen,setRenameOpen]=useState(false);
-  const [inviteOpen,setInviteOpen]=useState(false);
-  const [chatOpen,setChatOpen]=useState(false);
-  const [aiOpen,setAiOpen]=useState(false);
-  const [settingsOpen,setSettingsOpen]=useState(false);
-  const [meetingName,setMeetingName]=useState('');
-  const [fileName,setFileName]=useState('index');
-  const [fileLang,setFileLang]=useState('html');
-  const [folderName,setFolderName]=useState('');
-  const [folderId,setFolderId]=useState(null);
-  const [rename,setRename]=useState('');
-  const [toast,setToast]=useState('');
-  const [ctx,setCtx]=useState(null);
-  const [preview,setPreview]=useState('');
-  const [chat,setChat]=useState([]);
-  const [chatText,setChatText]=useState('');
-  const [members,setMembers]=useState([]);
-  const [presenceMap,setPresenceMap]=useState({});
-  const [split,setSplit]=useState(false);
-  const [secondId,setSecondId]=useState(null);
-  const [focusMode,setFocusMode]=useState(false);
-  const [terminalOpen,setTerminalOpen]=useState(false);
-  const [terminalInput,setTerminalInput]=useState('');
-  const [terminalLines,setTerminalLines]=useState([{type:'info',text:'Shared terminal ready.'}]);
-  const [aiPrompt,setAiPrompt]=useState('');
-  const [aiResponse,setAiResponse]=useState('');
-  const [aiBusy,setAiBusy]=useState(false);
-  const [inviteLink,setInviteLink]=useState('');
-  const [callPeers,setCallPeers]=useState([]);
-  const [mediaReady,setMediaReady]=useState(false);
-  const [micOn,setMicOn]=useState(true);
-  const [cameraOn,setCameraOn]=useState(true);
-  const [screenSharing,setScreenSharing]=useState(false);
-  const [previewWidth,setPreviewWidth]=useState('100%');
-  const [previewKey,setPreviewKey]=useState(0);
-  const [consoleLogs,setConsoleLogs]=useState([]);
-  const [runDoc,setRunDoc]=useState('');
-  const [runKey,setRunKey]=useState(0);
-  const [globalBusy,setGlobalBusy]=useState(false);
-  const [settings,setSettings]=useState(()=>{try{return {...DEFAULT_SETTINGS,...JSON.parse(localStorage.getItem('ds-settings')||'{}')}}catch{return DEFAULT_SETTINGS}});
+  const [meetings, setMeetings] = useState([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [meetingName, setMeetingName] = useState('');
 
-  const realtimeRef=useRef(null);
-  const callRef=useRef(null);
-  const mediaRef=useRef(null);
-  const cameraTrackRef=useRef(null);
-  const fileCleanupRef=useRef(null);
-  const collabRef=useRef(null);
-  const saveTimerRef=useRef(null);
-  const filesRef=useRef([]);
-  const activeRef=useRef(null);
-  const localVideoRef=useRef(null);
-  const currentTV=location.pathname.startsWith('/tv/');
-  const activeFile=useMemo(()=>files.find(f=>f.id===activeId)||null,[files,activeId]);
-  const secondFile=useMemo(()=>files.find(f=>f.id===secondId)||null,[files,secondId]);
-  const userName=profile?.name || session?.user_metadata?.name || session?.email?.split('@')[0] || 'Developer';
+  const [meeting, setMeeting] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [assets, setAssets] = useState([]);
+  const [activeId, setActiveId] = useState(null);
+  const [secondId, setSecondId] = useState(null);
+  const [tabs, setTabs] = useState([]);
+  const [split, setSplit] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [preview, setPreview] = useState('');
+  const [previewKey, setPreviewKey] = useState(0);
+  const [previewWidth, setPreviewWidth] = useState('100%');
+  const [logs, setLogs] = useState([]);
+  const [chat, setChat] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [callPeers, setCallPeers] = useState([]);
+  const [localStream, setLocalStream] = useState(null);
+  const [shareStream, setShareStream] = useState(null);
+  const [micOn, setMicOn] = useState(true);
+  const [cameraOn, setCameraOn] = useState(true);
+  const [settings, setSettings] = useState(() => {
+    try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('ds-settings') || '{}') }; } catch { return DEFAULT_SETTINGS; }
+  });
 
-  filesRef.current=files;
-  activeRef.current=activeId;
+  const channelRef = useRef(null);
+  const subscribedRef = useRef(false);
+  const callRef = useRef(null);
+  const callToken = useRef(0);
+  const mediaRef = useRef(null);
+  const screenTrackRef = useRef(null);
+  const registry = useRef({});
+  const filesRef = useRef([]);
+  const activeRef = useRef(null);
+  const secondRef = useRef(null);
+  const nameRef = useRef('Developer');
 
-  useEffect(()=>{localStorage.setItem('ds-settings',JSON.stringify(settings));},[settings]);
+  filesRef.current = files;
+  activeRef.current = activeId;
+  secondRef.current = split ? secondId : null;
 
-  useEffect(()=>{
-    if(!supabase){showToast('Supabase variables are missing in Vercel.');return;}
-    let mounted=true;
-    supabase.auth.getSession().then(({data})=>{if(mounted)setSession(data.session);});
-    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,s)=>{setSession(s);if(!s){setProfile(null);setMeeting(null);setScreen('landing');}});
-    return ()=>{mounted=false;subscription.unsubscribe();};
-  },[]);
+  const userId = session?.user?.id;
+  const userName = profile?.name || session?.user?.user_metadata?.name || session?.user?.email?.split('@')[0] || 'Developer';
+  nameRef.current = userName;
+  const activeFile = useMemo(() => files.find(f => f.id === activeId) || null, [files, activeId]);
+  const secondFile = useMemo(() => (split ? files.find(f => f.id === secondId) || null : null), [files, secondId, split]);
 
-  useEffect(()=>{
-    if(!session||!supabase)return;
-    (async()=>{
-      let {data:p}=await supabase.from('profiles').select('*').eq('id',session.user.id).maybeSingle();
-      if(!p){
-        await supabase.from('profiles').upsert({id:session.user.id,name:session.user.user_metadata?.name||session.user.email?.split('@')[0]||'Developer'});
-        ({data:p}=await supabase.from('profiles').select('*').eq('id',session.user.id).single());
+  useEffect(() => { try { localStorage.setItem('ds-settings', JSON.stringify(settings)); } catch { /* storage unavailable */ } }, [settings]);
+
+  /* ---------------------------------------------------------------- auth */
+  useEffect(() => {
+    if (!supabase) return undefined;
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => { if (alive) setSession(data.session || null); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => { if (alive) setSession(s || null); });
+    return () => { alive = false; subscription.unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    if (session === undefined || !supabase) return;
+    if (!session) { void cleanupMeeting(); resetMeetingState(); setProfile(null); setMeetings([]); setScreen('landing'); return; }
+    let cancelled = false;
+    (async () => {
+      const uid = session.user.id;
+      const fallbackName = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Developer';
+      let { data: p } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+      if (!p) {
+        await supabase.from('profiles').upsert({ id: uid, name: fallbackName });
+        ({ data: p } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle());
       }
-      setProfile(p||null);
+      if (cancelled) return;
+      setProfile(p || { id: uid, name: fallbackName });
       await loadMeetings();
-      const mt=location.pathname.match(/^\/(meeting|tv)\/([0-9a-f-]{36})/i);
-      if(mt){
-        const inv=new URLSearchParams(location.search).get('invite');
-        if(inv){const {error}=await supabase.rpc('join_meeting_by_invite',{p_token:inv});if(error)showToast(error.message);}
-        await openMeeting(mt[2],mt[1]==='tv');
-      } else setScreen('dashboard');
+      const route = location.pathname.match(new RegExp(`^/(meeting|tv)/(${UUID})`, 'i'));
+      if (!route) { setScreen('dashboard'); return; }
+      const invite = new URLSearchParams(location.search).get('invite');
+      if (invite) {
+        const { error } = await supabase.rpc('join_meeting_by_invite', { p_token: invite });
+        if (error) toast(explain(error));
+      }
+      await loadMeetings();
+      await openMeeting(route[2], route[1].toLowerCase() === 'tv');
     })();
-  },[session?.user?.id]);
+    return () => { cancelled = true; };
+  }, [session?.user?.id, session === null]);
 
-  useEffect(()=>()=>{void cleanupMeeting()},[]);
+  useEffect(() => () => { void cleanupMeeting(); }, []);
 
-  function showToast(text){
-    setToast(text);
-    clearTimeout(showToast.timer);
-    showToast.timer=setTimeout(()=>setToast(''),2400);
-  }
-
-  async function loadMeetings(){
-    if(!supabase)return;
-    const {data,error}=await supabase.from('meetings').select('*').order('created_at',{ascending:false});
-    if(error)showToast(error.message);else setMeetings(data||[]);
-  }
-
-  async function authSubmit(e){
+  async function authSubmit(e) {
     e.preventDefault();
-    if(!supabase)return;
-    setAuthError('');setAuthBusy(true);
-    const fd=new FormData(e.currentTarget);
-    const email=String(fd.get('email')||'').trim();
-    const password=String(fd.get('password')||'');
-    const name=String(fd.get('name')||'').trim();
-    if(!email||!password){setAuthError('Enter email and password.');setAuthBusy(false);return;}
-    let r;
-    if(authMode==='register') r=await supabase.auth.signUp({email,password,options:{data:{name:name||email.split('@')[0]}}});
-    else r=await supabase.auth.signInWithPassword({email,password});
-    if(r.error){setAuthError(r.error.message);setAuthBusy(false);return;}
-    setAuthOpen(false);setAuthBusy(false);showToast(authMode==='register'?'Account created successfully':'Welcome back');
+    if (!supabase) return;
+    setAuthError(''); setAuthNotice(''); setAuthBusy(true);
+    const fd = new FormData(e.currentTarget);
+    const email = String(fd.get('email') || '').trim();
+    const password = String(fd.get('password') || '');
+    const name = String(fd.get('name') || '').trim();
+    try {
+      if (authMode === 'register') {
+        const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { name: name || email.split('@')[0] } } });
+        if (error) throw error;
+        if (!data.session) { setAuthNotice('Account created. Check your email and click the confirmation link, then sign in.'); setAuthMode('login'); return; }
+        toast('Account created');
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        toast('Welcome back');
+      }
+      setAuthOpen(false);
+    } catch (err) { setAuthError(err.message); } finally { setAuthBusy(false); }
   }
 
-  async function logout(){
-    setGlobalBusy(true);
-    showToast('Signing you out…');
-    try{
-      await cleanupMeeting();
-    }catch(error){
-      console.error('DevSync cleanup error during logout:',error);
-    }
-    try{
-      const {error}=await supabase?.auth.signOut({scope:'local'});
-      if(error) console.error('DevSync sign-out error:',error);
-    }catch(error){
-      console.error('DevSync sign-out exception:',error);
-    }finally{
-      setSession(null);
-      setProfile(null);
-      setMeeting(null);
-      setFiles([]);
-      setFolders([]);
-      setActiveId(null);
-      setSecondId(null);
-      setContent('');
-      setPreview('');
-      setScreen('landing');
-      setGlobalBusy(false);
-      history.replaceState(null,'','/');
-    }
+  async function logout() {
+    setBusy(true);
+    try { await cleanupMeeting(); } catch (e) { console.error(e); }
+    try { await supabase.auth.signOut({ scope: 'local' }); } catch (e) { console.error(e); }
+    resetMeetingState();
+    setSession(null); setProfile(null); setMeetings([]); setScreen('landing');
+    history.replaceState(null, '', '/');
+    setBusy(false);
   }
 
-  async function createMeeting(){
-    if(!meetingName.trim()) return showToast('Give your meeting a name first.');
-    if(!supabase || !session?.user?.id) return showToast('Your session expired. Please sign in again.');
+  /* ------------------------------------------------------------ meetings */
+  async function loadMeetings() {
+    const { data, error } = await supabase.from('meetings').select('*').order('created_at', { ascending: false });
+    if (error) toast(explain(error)); else setMeetings(data || []);
+  }
 
-    setGlobalBusy(true);
-    const trimmedName=meetingName.trim();
-
-    try{
-      // Primary path: create the rows directly. This avoids relying on a stale
-      // PostgREST function cache and still stays protected by RLS.
-      const meetingId=crypto.randomUUID();
-      const inviteToken=crypto.randomUUID();
-
-      const {error:insertError}=await supabase.from('meetings').insert({
-        id:meetingId,
-        name:trimmedName,
-        owner_id:session.user.id,
-        invite_token:inviteToken
-      });
-
-      if(insertError){
-        // Fallback for projects that have the database function but have not
-        // refreshed the table permissions yet.
-        const {data:rpcId,error:rpcError}=await supabase.rpc('create_meeting',{p_name:trimmedName});
-        if(rpcError) throw new Error(`${insertError.message} (RPC fallback: ${rpcError.message})`);
-        setCreateOpen(false);
-        setMeetingName('');
-        await loadMeetings();
-        await openMeeting(rpcId,false);
-        return;
+  async function createMeeting() {
+    const name = meetingName.trim();
+    if (!name) return toast('Give your meeting a name first.');
+    if (!userId) return toast('Your session expired. Please sign in again.');
+    setBusy(true);
+    try {
+      let id;
+      const rpc = await supabase.rpc('create_meeting', { p_name: name });
+      if (!rpc.error && rpc.data) id = rpc.data;
+      else {
+        // Fallback if the RPC is unavailable: two plain inserts, still guarded by RLS.
+        id = crypto.randomUUID();
+        const ins = await supabase.from('meetings').insert({ id, name, owner_id: userId, invite_token: crypto.randomUUID() });
+        if (ins.error) throw new Error(`${explain(rpc.error || ins.error)}`);
+        const mem = await supabase.from('meeting_members').insert({ meeting_id: id, user_id: userId, role: 'owner' });
+        if (mem.error) { await supabase.from('meetings').delete().eq('id', id); throw mem.error; }
       }
-
-      const {error:memberError}=await supabase.from('meeting_members').insert({
-        meeting_id:meetingId,
-        user_id:session.user.id,
-        role:'owner'
-      });
-
-      if(memberError){
-        // Do not leave an orphaned private meeting behind.
-        await supabase.from('meetings').delete().eq('id',meetingId);
-        throw memberError;
-      }
-
-      setCreateOpen(false);
-      setMeetingName('');
+      setCreateOpen(false); setMeetingName('');
       await loadMeetings();
-      await openMeeting(meetingId,false);
-      showToast('Meeting created');
-    }catch(error){
-      console.error('DevSync create meeting error:',error);
-      showToast(error?.message || 'Unable to create the meeting.');
-    }finally{
-      setGlobalBusy(false);
-    }
+      toast('Meeting created');
+      await openMeeting(id, false);
+    } catch (e) {
+      console.error('create meeting failed', e);
+      toast(explain(e));
+    } finally { setBusy(false); }
   }
 
-  async function openMeeting(id,isTV=false){
-    if(!supabase)return;
-    setGlobalBusy(true);
-    const [{data:m,error:me},{data:f},{data:fo}]=await Promise.all([
-      supabase.from('meetings').select('*').eq('id',id).single(),
-      supabase.from('files').select('*').eq('meeting_id',id).order('created_at'),
-      supabase.from('folders').select('*').eq('meeting_id',id).order('created_at')
-    ]);
-    if(me){setGlobalBusy(false);return showToast(me.message);}
-    setMeeting(m);setFiles(f||[]);setFolders(fo||[]);setActiveId(null);setContent('');setPreview('');setChat([]);setConsoleLogs([]);setTerminalLines([{type:'info',text:'Shared terminal ready.'}]);
-    setScreen(isTV?'tv':'meeting');
-    await subscribeMeeting(m.id);
-    if(!isTV) await startCall(m.id);
-    setGlobalBusy(false);
+  async function renameMeeting(m) {
+    if (m.owner_id !== userId) return toast('Only the meeting owner can rename it.');
+    const n = window.prompt('Rename meeting', m.name)?.trim();
+    if (!n || n === m.name) return;
+    const { data, error } = await supabase.from('meetings').update({ name: n }).eq('id', m.id).select('id');
+    if (error) return toast(explain(error));
+    if (!data?.length) return toast('Only the meeting owner can rename it.');
+    await loadMeetings();
+    toast('Meeting renamed');
   }
 
-  async function subscribeMeeting(id){
-    await realtimeRef.current?.unsubscribe();
-    const ch=supabase.channel('meeting:'+id,{config:{private:true,presence:{key:session.user.id},broadcast:{self:false}}});
-    ch.on('broadcast',{event:'chat'},({payload})=>setChat(old=>[...old,payload]))
-      .on('broadcast',{event:'activity'},({payload})=>showToast(payload.message))
-      .on('broadcast',{event:'file-change'},({payload})=>{
-        setFiles(old=>old.map(f=>f.id===payload.id?{...f,content:payload.content,updated_at:new Date().toISOString()}:f));
-        if(activeRef.current===payload.id)setContent(payload.content);
-        updatePreview(payload.id,payload.content);
+  async function deleteMeeting(m) {
+    if (m.owner_id !== userId) return toast('Only the meeting owner can delete it.');
+    if (!window.confirm(`Delete "${m.name}" and all its files? This cannot be undone.`)) return;
+    const { data, error } = await supabase.from('meetings').delete().eq('id', m.id).select('id');
+    if (error) return toast(explain(error));
+    if (!data?.length) return toast('Only the meeting owner can delete it.');
+    await loadMeetings();
+    toast('Meeting deleted');
+  }
+
+  function resetMeetingState() {
+    setMeeting(null); setFiles([]); setFolders([]); setAssets([]); setActiveId(null); setSecondId(null); setTabs([]);
+    setSplit(false); setPreview(''); setLogs([]); setChat([]); setMembers([]); setFocusMode(false);
+  }
+
+  async function openMeeting(id, isTV = false) {
+    setBusy(true);
+    try {
+      await cleanupMeeting();
+      resetMeetingState();
+      const [m, f, fo] = await Promise.all([
+        supabase.from('meetings').select('*').eq('id', id).maybeSingle(),
+        supabase.from('files').select('*').eq('meeting_id', id).order('created_at'),
+        supabase.from('folders').select('*').eq('meeting_id', id).order('created_at'),
+      ]);
+      if (m.error) throw m.error;
+      if (!m.data) throw new Error('Meeting not found, or you are not a member. Ask the owner for an invite link.');
+      setMeeting(m.data); setFiles(f.data || []); setFolders(fo.data || []);
+      setScreen(isTV ? 'tv' : 'meeting');
+      history.replaceState(null, '', `/${isTV ? 'tv' : 'meeting'}/${id}`);
+      await subscribeMeeting(id, isTV);
+      if (!isTV) { void loadAssets(id); void startCall(id); }
+    } catch (e) {
+      toast(explain(e));
+      setScreen('dashboard');
+      history.replaceState(null, '', '/');
+    } finally { setBusy(false); }
+  }
+
+  async function leave() {
+    await cleanupMeeting();
+    resetMeetingState();
+    setScreen('dashboard');
+    history.replaceState(null, '', '/');
+    void loadMeetings();
+  }
+
+  async function cleanupMeeting() {
+    stopRun();
+    callToken.current += 1;
+    try { screenTrackRef.current?.stop(); } catch { /* already stopped */ }
+    screenTrackRef.current = null;
+    try { await callRef.current?.stop(); } catch (e) { console.error(e); }
+    callRef.current = null;
+    mediaRef.current?.getTracks().forEach(t => t.stop());
+    mediaRef.current = null;
+    setLocalStream(null); setShareStream(null); setCallPeers([]);
+    const ch = channelRef.current;
+    channelRef.current = null; subscribedRef.current = false;
+    if (ch) { try { await ch.unsubscribe(); } catch (e) { console.error(e); } }
+  }
+
+  /* ------------------------------------------------------------ realtime */
+  async function subscribeMeeting(id, isTV) {
+    try { await supabase.realtime.setAuth(); } catch { /* token is applied automatically on most versions */ }
+    const ch = supabase.channel('meeting:' + id, { config: { private: true, presence: { key: userId }, broadcast: { self: false } } });
+    const syncPresence = () => {
+      const list = [];
+      Object.values(ch.presenceState()).forEach(v => { if (v?.[0]) list.push(v[0]); });
+      setMembers(list);
+    };
+    ch.on('broadcast', { event: 'chat' }, ({ payload }) => setChat(old => [...old, payload]))
+      .on('broadcast', { event: 'file-change' }, ({ payload }) => {
+        if (payload.id === activeRef.current || payload.id === secondRef.current) return; // live via the CRDT session
+        setFiles(old => old.map(f => (f.id === payload.id ? { ...f, content: payload.content } : f)));
       })
-      .on('broadcast',{event:'files-refresh'},()=>refreshMeetingData(id))
-      .on('broadcast',{event:'focus'},({payload})=>showToast(`${payload.name} focused ${payload.fileName}`))
-      .on('presence',{event:'sync'},()=>syncPresence(ch))
-      .on('presence',{event:'join'},()=>syncPresence(ch))
-      .on('presence',{event:'leave'},()=>syncPresence(ch))
-      .subscribe(async status=>{if(status==='SUBSCRIBED')await ch.track({id:session.user.id,name:userName,activeFile:null});});
-    realtimeRef.current=ch;
+      .on('broadcast', { event: 'files-refresh' }, () => { void refreshMeetingData(id); })
+      .on('presence', { event: 'sync' }, syncPresence)
+      .on('presence', { event: 'join' }, syncPresence)
+      .on('presence', { event: 'leave' }, syncPresence)
+      .subscribe(async status => {
+        if (status === 'SUBSCRIBED') {
+          subscribedRef.current = true;
+          if (!isTV) await ch.track({ id: userId, name: nameRef.current, activeFile: activeRef.current });
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          toast('Live connection problem. If this keeps happening, run supabase/setup.sql and check Realtime settings.');
+        }
+      });
+    channelRef.current = ch;
   }
 
-  async function syncPresence(ch){
-    const state=ch.presenceState();
-    const list=[];const map={};
-    Object.entries(state).forEach(([key,val])=>{const p=val?.[0]||{};list.push(p);map[key]=p;});
-    setMembers(list);setPresenceMap(map);
-  }
+  useEffect(() => {
+    if (channelRef.current && subscribedRef.current && screen === 'meeting') {
+      void channelRef.current.track({ id: userId, name: userName, activeFile: activeId });
+    }
+  }, [activeId, userName]);
 
-  async function refreshMeetingData(id){
-    const [{data:f},{data:fo}]=await Promise.all([
-      supabase.from('files').select('*').eq('meeting_id',id).order('created_at'),
-      supabase.from('folders').select('*').eq('meeting_id',id).order('created_at')
+  const announce = useCallback(() => channelRef.current?.send({ type: 'broadcast', event: 'files-refresh', payload: {} }), []);
+
+  async function refreshMeetingData(id) {
+    const [f, fo] = await Promise.all([
+      supabase.from('files').select('*').eq('meeting_id', id).order('created_at'),
+      supabase.from('folders').select('*').eq('meeting_id', id).order('created_at'),
     ]);
-    if(f)setFiles(old=>f.map(x=>x.id===activeRef.current?{...x,content:old.find(o=>o.id===x.id)?.content??x.content}:x));
-    if(fo)setFolders(fo);
-  }
-
-  async function startCall(id){
-    if(!navigator.mediaDevices?.getUserMedia){showToast('This browser does not expose camera and microphone access.');return;}
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:true});
-      mediaRef.current=stream;
-      cameraTrackRef.current=stream.getVideoTracks()[0]||null;
-      setMediaReady(true);
-      setMicOn(stream.getAudioTracks()[0]?.enabled!==false);setCameraOn(stream.getVideoTracks()[0]?.enabled!==false);
-      if(localVideoRef.current)localVideoRef.current.srcObject=stream;
-      const room=new CallRoom({supabase,topic:'call:'+id,userId:session.user.id,userName,onPeers:setCallPeers});
-      await room.start(stream);callRef.current=room;
-    }catch(error){setMediaReady(false);showToast('Camera/microphone permission was not granted. You can still collaborate.');}
-  }
-
-  async function cleanupMeeting(){
-    try{
-      fileCleanupRef.current?.dispose?.();
-    }catch(error){
-      console.error('DevSync file cleanup error:',error);
-    }finally{
-      fileCleanupRef.current=null;
+    if (f.data) {
+      const open = new Set([activeRef.current, secondRef.current].filter(Boolean));
+      setFiles(old => f.data.map(x => (open.has(x.id) ? { ...x, content: old.find(o => o.id === x.id)?.content ?? x.content } : x)));
+      const ids = new Set(f.data.map(x => x.id));
+      setTabs(t => t.filter(tid => ids.has(tid)));
+      if (activeRef.current && !ids.has(activeRef.current)) setActiveId(null);
+      if (secondRef.current && !ids.has(secondRef.current)) setSecondId(null);
     }
+    if (fo.data) setFolders(fo.data);
+    if (screen !== 'tv') void loadAssets(id);
+  }
 
-    collabRef.current=null;
-    clearTimeout(saveTimer.current);
+  /* ---------------------------------------------------------- video call */
+  async function startCall(id) {
+    const token = ++callToken.current;
+    const stream = await getMedia();
+    if (token !== callToken.current) { stream?.getTracks().forEach(t => t.stop()); return; }
+    if (!stream) toast('Camera/microphone unavailable or blocked. You can still collaborate and see others.');
+    mediaRef.current = stream;
+    setLocalStream(stream);
+    setMicOn(stream?.getAudioTracks()[0]?.enabled !== false);
+    setCameraOn(stream?.getVideoTracks()[0]?.enabled !== false);
+    try {
+      const room = new CallRoom({ supabase, topic: 'call:' + id, userId, userName: nameRef.current, onPeers: setCallPeers });
+      await room.start(stream);
+      if (token !== callToken.current) { await room.stop(); return; }
+      callRef.current = room;
+    } catch (e) { console.error('call failed', e); toast('Could not join the video call: ' + e.message); }
+  }
 
-    try{
-      await callRef.current?.stop();
-    }catch(error){
-      console.error('DevSync call cleanup error:',error);
-    }finally{
-      callRef.current=null;
+  function toggleMedia(kind) {
+    const track = kind === 'audio' ? mediaRef.current?.getAudioTracks()[0] : mediaRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    if (kind === 'audio') setMicOn(track.enabled); else setCameraOn(track.enabled);
+  }
+
+  function stopScreenShare() {
+    const t = screenTrackRef.current;
+    if (!t) return;
+    t.onended = null; t.stop();
+    screenTrackRef.current = null;
+    callRef.current?.replaceVideoTrack(mediaRef.current?.getVideoTracks()[0] || null);
+    setShareStream(null);
+  }
+
+  async function toggleScreen() {
+    if (!callRef.current) return toast('The call is still connecting. Try again in a moment.');
+    if (screenTrackRef.current) return stopScreenShare();
+    if (!navigator.mediaDevices?.getDisplayMedia) return toast('Screen sharing is not supported in this browser.');
+    try {
+      const display = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const track = display.getVideoTracks()[0];
+      screenTrackRef.current = track;
+      track.onended = stopScreenShare;
+      callRef.current.replaceVideoTrack(track);
+      setShareStream(new MediaStream([track]));
+    } catch { toast('Screen sharing cancelled.'); }
+  }
+
+  /* --------------------------------------------------------------- files */
+  const onContent = useCallback((id, v) => {
+    setFiles(old => (old.some(f => f.id === id && f.content !== v) ? old.map(f => (f.id === id ? { ...f, content: v } : f)) : old));
+  }, []);
+
+  const onSaved = useCallback((id, content) => {
+    channelRef.current?.send({ type: 'broadcast', event: 'file-change', payload: { id, content } });
+  }, []);
+
+  function openFile(f) {
+    setActiveId(f.id);
+    setTabs(t => (t.includes(f.id) ? t : [...t, f.id]));
+    if (secondId === f.id) setSecondId(null);
+  }
+
+  function closeTab(id) {
+    setTabs(t => t.filter(x => x !== id));
+    if (id === activeId) {
+      const rest = tabs.filter(x => x !== id);
+      const idx = tabs.indexOf(id);
+      const next = files.find(f => f.id === (rest[idx] || rest[idx - 1]));
+      setActiveId(next ? next.id : null);
     }
+  }
 
-    try{
-      mediaRef.current?.getTracks().forEach(t=>t.stop());
-    }catch(error){
-      console.error('DevSync media cleanup error:',error);
-    }finally{
-      mediaRef.current=null;
-      cameraTrackRef.current=null;
-      setMediaReady(false);
-      setCallPeers([]);
+  const existsIn = (name, folderId, exceptId) => filesRef.current.some(f => f.id !== exceptId && f.name.toLowerCase() === name.toLowerCase() && (f.folder_id || null) === (folderId || null));
+
+  async function createFile({ name, lang, folderId }) {
+    let n = name.trim().replace(/[\\/]/g, '');
+    if (!n) return toast('Enter a file name.');
+    let language = lang;
+    if (EXT_LANG[extOf(n)] && n.includes('.')) language = EXT_LANG[extOf(n)];
+    else n += '.' + LANGS[lang][1];
+    if (existsIn(n, folderId)) return toast('A file with that name already exists in this folder.');
+    const { data, error } = await supabase.from('files').insert({ meeting_id: meeting.id, name: n, language, content: '', path: '/', folder_id: folderId || null, created_by: userId }).select('*').single();
+    if (error) return toast(explain(error));
+    setFiles(old => [...old, data]);
+    openFile(data);
+    void announce();
+    toast(n + ' created');
+  }
+
+  async function createFolder(name) {
+    const n = name.trim().replace(/[\\/]/g, '');
+    if (!n) return toast('Enter a folder name.');
+    if (folders.some(f => f.name.toLowerCase() === n.toLowerCase())) return toast('That folder already exists.');
+    const { data, error } = await supabase.from('folders').insert({ meeting_id: meeting.id, name: n, parent_id: null, created_by: userId }).select('*').single();
+    if (error) return toast(explain(error));
+    setFolders(old => [...old, data]);
+    void announce();
+    toast(n + ' created');
+  }
+
+  function dropFilesFromState(ids) {
+    const gone = new Set(ids);
+    setFiles(old => old.filter(f => !gone.has(f.id)));
+    setTabs(t => t.filter(x => !gone.has(x)));
+    if (gone.has(activeRef.current)) setActiveId(null);
+    if (gone.has(secondRef.current)) setSecondId(null);
+  }
+
+  async function deleteFolder(folder) {
+    if (!folder) return;
+    const inside = files.filter(f => f.folder_id === folder.id);
+    if (!window.confirm(`Delete folder "${folder.name}"${inside.length ? ` and its ${inside.length} file${inside.length === 1 ? '' : 's'}` : ''}?`)) return;
+    if (inside.length) {
+      const r = await supabase.from('files').delete().eq('folder_id', folder.id);
+      if (r.error) return toast(explain(r.error));
     }
+    const { error } = await supabase.from('folders').delete().eq('id', folder.id);
+    if (error) return toast(explain(error));
+    dropFilesFromState(inside.map(f => f.id));
+    setFolders(old => old.filter(f => f.id !== folder.id));
+    void announce();
+  }
 
-    try{
-      await realtimeRef.current?.unsubscribe();
-    }catch(error){
-      console.error('DevSync realtime cleanup error:',error);
-    }finally{
-      realtimeRef.current=null;
+  async function deleteFile(f) {
+    if (!f || !window.confirm(`Delete ${f.name}?`)) return;
+    const { error } = await supabase.from('files').delete().eq('id', f.id);
+    if (error) return toast(explain(error));
+    dropFilesFromState([f.id]);
+    void announce();
+  }
+
+  async function renameFile(id, name) {
+    const f = files.find(x => x.id === id);
+    const n = name.trim().replace(/[\\/]/g, '');
+    if (!f || !n || n === f.name) return;
+    if (existsIn(n, f.folder_id, id)) return toast('A file with that name already exists in this folder.');
+    const language = langFromName(n, f.language);
+    const { error } = await supabase.from('files').update({ name: n, language, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) return toast(explain(error));
+    setFiles(old => old.map(x => (x.id === id ? { ...x, name: n, language } : x)));
+    void announce();
+  }
+
+  async function moveFile(f, folderId) {
+    if (existsIn(f.name, folderId, f.id)) return toast('A file with that name already exists there.');
+    const { error } = await supabase.from('files').update({ folder_id: folderId }).eq('id', f.id);
+    if (error) return toast(explain(error));
+    setFiles(old => old.map(x => (x.id === f.id ? { ...x, folder_id: folderId } : x)));
+    void announce();
+  }
+
+  async function duplicateFile(f) {
+    const dot = f.name.lastIndexOf('.');
+    const base = dot > -1 ? f.name.slice(0, dot) : f.name;
+    const ext = dot > -1 ? f.name.slice(dot) : '';
+    let n = `${base}-copy${ext}`;
+    for (let i = 2; existsIn(n, f.folder_id); i += 1) n = `${base}-copy-${i}${ext}`;
+    const { data, error } = await supabase.from('files').insert({ meeting_id: meeting.id, name: n, language: f.language, content: f.content || '', path: f.path || '/', folder_id: f.folder_id || null, created_by: userId }).select('*').single();
+    if (error) return toast(explain(error));
+    setFiles(old => [...old, data]);
+    void announce();
+    toast(n + ' created');
+  }
+
+  async function loadAssets(id) {
+    const { data, error } = await supabase.storage.from('project-assets').list(id, { limit: 200, sortBy: { column: 'created_at', order: 'desc' } });
+    if (error) { setAssets([]); return; }
+    setAssets((data || []).filter(o => o.name && !o.name.startsWith('.')).map(o => ({ path: `${id}/${o.name}`, name: o.name.replace(/^[0-9a-f-]{36}-/, '') })));
+  }
+
+  async function downloadAsset(a) {
+    const { data, error } = await supabase.storage.from('project-assets').createSignedUrl(a.path, 60, { download: a.name });
+    if (error) return toast(explain(error));
+    const el = document.createElement('a'); el.href = data.signedUrl; el.rel = 'noopener'; el.click();
+  }
+
+  async function deleteAsset(a) {
+    if (!window.confirm(`Delete asset ${a.name}?`)) return;
+    const { error } = await supabase.storage.from('project-assets').remove([a.path]);
+    if (error) return toast(explain(error));
+    await loadAssets(meeting.id);
+    void announce();
+  }
+
+  async function upload(list) {
+    let added = 0;
+    for (const file of list) {
+      try {
+        const asText = isTextName(file.name) && file.size <= 2_000_000 ? await file.text() : null;
+        if (asText !== null && !asText.includes('\u0000')) {
+          if (existsIn(file.name, null)) { toast(`${file.name} already exists — skipped.`); continue; }
+          const { data, error } = await supabase.from('files').insert({ meeting_id: meeting.id, name: file.name, language: langFromName(file.name), content: asText, path: '/', folder_id: null, created_by: userId }).select('*').single();
+          if (error) { toast(`${file.name}: ${explain(error)}`); continue; }
+          setFiles(old => [...old, data]); added += 1;
+        } else {
+          const path = `${meeting.id}/${crypto.randomUUID()}-${file.name}`;
+          const { error } = await supabase.storage.from('project-assets').upload(path, file, { upsert: false, contentType: file.type || 'application/octet-stream' });
+          if (error) { toast(`${file.name}: ${explain(error)}`); continue; }
+          added += 1;
+        }
+      } catch (e) { toast(`${file.name}: ${e.message}`); }
     }
+    if (added) { toast(`${added} file${added === 1 ? '' : 's'} uploaded`); await loadAssets(meeting.id); void announce(); }
   }
 
-  function leaveMeeting(){
-    void cleanupMeeting();setMeeting(null);setFiles([]);setFolders([]);setActiveId(null);setSecondId(null);setContent('');setPreview('');setScreen('dashboard');
-    void loadMeetings();history.replaceState(null,'','/');
+  async function download() {
+    if (!files.length) return toast('There are no files to download.');
+    const zip = new JSZip();
+    const folderName = id => folders.find(f => f.id === id)?.name;
+    files.forEach(f => zip.file(f.folder_id && folderName(f.folder_id) ? `${folderName(f.folder_id)}/${f.name}` : f.name, f.content || ''));
+    const blob = await zip.generateAsync({ type: 'blob' });
+    saveBlob(blob, `${(meeting?.name || 'devsync-project').replace(/[^\w.-]+/g, '-')}.zip`);
   }
 
-  async function openFile(f){
-    setActiveId(f.id);setContent(f.content||'');setTerminalOpen(false);setConsoleLogs([]);updatePreview(f.id,f.content||'');
-    fileCleanupRef.current?.dispose?.();fileCleanupRef.current?.();fileCleanupRef.current=null;
-    collabRef.current=null;
-    if(!supabase)return;
-    fileCleanupRef.current=await openCollaborativeFile({
-      supabase,fileId:f.id,initialContent:f.content||'',
-      onChange:v=>{setContent(v);setFiles(old=>old.map(x=>x.id===f.id?{...x,content:v}:x));updatePreview(f.id,v);},
-      persist:async v=>{await supabase.from('files').update({content:v,updated_at:new Date().toISOString()}).eq('id',f.id);}
-    });
-    collabRef.current=collab;
-    fileCleanupRef.current=collab.dispose;
-    await realtimeRef.current?.track({id:session.user.id,name:userName,activeFile:f.id});
-    await realtimeRef.current?.send({type:'broadcast',event:'focus',payload:{name:userName,fileName:f.name}});
+  function saveBlob(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1500);
   }
 
-  async function updateContent(v){
-    setContent(v);
-    if(!activeFile)return;
-    setFiles(old=>old.map(f=>f.id===activeFile.id?{...f,content:v}:f));
-    updatePreview(activeFile.id,v);
-    if(collabRef.current?.setText){
-      collabRef.current.setText(v);
-      return;
-    }
-    clearTimeout(saveTimer.current);
-    saveTimer.current=setTimeout(async()=>{
-      await supabase.from('files').update({content:v,updated_at:new Date().toISOString()}).eq('id',activeFile.id);
-    },600);
+  const downloadOne = f => saveBlob(new Blob([f.content || ''], { type: 'text/plain' }), f.name);
+
+  /* -------------------------------------------------------------- preview */
+  useEffect(() => {
+    if (screen !== 'meeting' && screen !== 'tv') return undefined;
+    const t = setTimeout(() => setPreview(buildPreview(files, screen === 'tv' ? null : activeFile)), 250);
+    return () => clearTimeout(t);
+  }, [files, activeId, screen]);
+
+  useEffect(() => {
+    const h = e => {
+      const d = e.data;
+      if (d?.ds === 'preview' && ['log', 'info', 'warn', 'error'].includes(d.t)) setLogs(l => [...l.slice(-499), { type: d.t, m: d.m }]);
+    };
+    window.addEventListener('message', h);
+    return () => window.removeEventListener('message', h);
+  }, []);
+
+  function openPreviewTab() {
+    if (!preview) return toast('Create an HTML file first.');
+    window.open(URL.createObjectURL(new Blob([preview], { type: 'text/html' })), '_blank');
   }
 
-  async function createFile(){
-    let n=fileName.trim().replace(/[\\/]/g,'');
-    if(!n)return showToast('Enter a file name.');
-    const ext=LANGS[fileLang][1];
-    if(!n.toLowerCase().endsWith('.'+ext))n+='.'+ext;
-    if(files.some(f=>f.name===n&&String(f.folder_id||'')===String(folderId||'')))return showToast('That file already exists in this folder.');
-    const {data,error}=await supabase.from('files').insert({meeting_id:meeting.id,name:n,language:fileLang,content:'',path:'/',folder_id:folderId||null,created_by:session.user.id}).select('*').single();
-    if(error)return showToast(error.message);
-    setFiles(old=>[...old,data]);setFileOpen(false);setFileName('index');await openFile(data);await refreshAndAnnounce();showToast(n+' created');
-  }
-
-  async function createFolder(){
-    const n=folderName.trim();if(!n)return showToast('Enter a folder name.');
-    const {data,error}=await supabase.from('folders').insert({meeting_id:meeting.id,name:n,parent_id:null,created_by:session.user.id}).select('*').single();
-    if(error)return showToast(error.message);setFolders(old=>[...old,data]);setFolderOpen(false);setFolderName('');await refreshAndAnnounce();showToast(n+' created');
-  }
-
-  async function deleteFolder(folderIdToDelete){
-    const folder=folders.find(x=>x.id===folderIdToDelete);if(!folder)return;
-    if(!confirm(`Delete folder "${folder.name}" and its files?`))return;
-    const {error}=await supabase.from('folders').delete().eq('id',folderIdToDelete);
-    if(error)return showToast(error.message);
-    await refreshAndAnnounce();
-    if(folders.some(f=>f.id===folderIdToDelete))setFolders(old=>old.filter(f=>f.id!==folderIdToDelete));
-  }
-
-  async function deleteFile(id){
-    const f=files.find(x=>x.id===id);if(!f||!confirm(`Delete ${f.name}?`))return;
-    const {error}=await supabase.from('files').delete().eq('id',id);if(error)return showToast(error.message);
-    setFiles(old=>old.filter(x=>x.id!==id));
-    if(activeId===id){setActiveId(null);setContent('');setPreview('');}
-    setCtx(null);await refreshAndAnnounce();
-  }
-
-  async function renameFile(){
-    if(!ctx?.fileId)return;const f=files.find(x=>x.id===ctx.fileId);if(!f)return;
-    const n=rename.trim();if(!n)return showToast('Enter a new name.');
-    const lang=Object.entries(LANGS).find(([,v])=>n.toLowerCase().endsWith('.'+v[1]))?.[0]||f.language;
-    const {error}=await supabase.from('files').update({name:n,language:lang,updated_at:new Date().toISOString()}).eq('id',f.id);
-    if(error)return showToast(error.message);
-    setFiles(old=>old.map(x=>x.id===f.id?{...x,name:n,language:lang}:x));setRenameOpen(false);setCtx(null);await refreshAndAnnounce();
-  }
-
-  async function duplicateFile(){
-    const f=files.find(x=>x.id===ctx?.fileId);if(!f)return;
-    const dot=f.name.lastIndexOf('.');const base=dot>-1?f.name.slice(0,dot):f.name;const ext=dot>-1?f.name.slice(dot):'';
-    let n=base+'-copy'+ext;let i=2;while(files.some(x=>x.name===n&&String(x.folder_id||'')===String(f.folder_id||''))){n=base+'-copy-'+i+ext;i++;}
-    const {data,error}=await supabase.from('files').insert({meeting_id:meeting.id,name:n,language:f.language,content:f.content,path:f.path||'/',folder_id:f.folder_id||null,created_by:session.user.id}).select('*').single();
-    if(error)return showToast(error.message);setFiles(old=>[...old,data]);setCtx(null);await refreshAndAnnounce();showToast(n+' created');
-  }
-
-  async function uploadFiles(list){
-    for(const file of list){
-      const dot=file.name.lastIndexOf('.');const ext=dot>-1?file.name.slice(dot+1).toLowerCase():'';
-      if(TEXT_EXTENSIONS.has(ext)){
-        const text=await file.text();
-        const lang=Object.entries(LANGS).find(([,v])=>v[1]===ext)?.[0]||'plaintext';
-        if(filesRef.current.some(f=>f.name===file.name))continue;
-        const {data,error}=await supabase.from('files').insert({meeting_id:meeting.id,name:file.name,language:lang,content:text,path:'/',folder_id:folderId||null,created_by:session.user.id}).select('*').single();
-        if(!error&&data)setFiles(old=>[...old,data]);
-        continue;
-      }
-      const objectPath=`${meeting.id}/${crypto.randomUUID()}-${file.name}`;
-      const {error}=await supabase.storage.from('project-assets').upload(objectPath,file,{upsert:false,contentType:file.type||'application/octet-stream'});
-      if(error)showToast(`${file.name}: ${error.message}`);else showToast(`${file.name} uploaded to project storage`);
-    }
-    await refreshAndAnnounce();
-  }
-
-  async function refreshAndAnnounce(){
-    await realtimeRef.current?.send({type:'broadcast',event:'files-refresh',payload:{}});
-  }
-
-  function updatePreview(changedId,changed){
-    const all=filesRef.current.map(f=>f.id===changedId?{...f,content:changed}:f);
-    const html=all.find(f=>f.language==='html');
-    if(!html){setPreview('');return;}
-    let doc=html.content||'';
-    all.filter(x=>x.language==='css').forEach(f=>{
-      const n=f.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-      const tag=`<style data-devsync="${escapeHtml(f.name)}">${f.content||''}</style>`;
-      const re=new RegExp(`<link[^>]*href=["']${n}["'][^>]*>`,'i');
-      doc=re.test(doc)?doc.replace(re,tag):doc.replace(/<\/head>/i,tag+'</head>');
-    });
-    all.filter(x=>x.language==='javascript').forEach(f=>{
-      const n=f.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-      const safe=(f.content||'').replace(/<\/script>/gi,'<\\/script>');
-      const tag=`<script data-devsync="${escapeHtml(f.name)}">${safe}</script>`;
-      const re=new RegExp(`<script[^>]*src=["']${n}["'][^>]*><\\/script>`,'i');
-      doc=re.test(doc)?doc.replace(re,tag):doc.replace(/<\/body>/i,tag+'</body>');
-    });
-    setPreview(doc);
-  }
-
-  async function sendChat(){
-    if(!chatText.trim())return;
-    const payload={name:userName,message:chatText.trim()};
-    setChat(old=>[...old,payload]);await realtimeRef.current?.send({type:'broadcast',event:'chat',payload});setChatText('');
-  }
-
-  async function toggleMedia(kind){
-    const track=kind==='audio'?mediaRef.current?.getAudioTracks()[0]:mediaRef.current?.getVideoTracks()[0];if(!track)return;
-    track.enabled=!track.enabled;
-    if(kind==='audio')setMicOn(track.enabled);else setCameraOn(track.enabled);
-  }
-
-  async function toggleScreenShare(){
-    if(!mediaRef.current||!callRef.current)return;
-    if(screenSharing){
-      const camera=cameraTrackRef.current;
-      if(camera){callRef.current.replaceVideoTrack(camera);mediaRef.current.getVideoTracks().forEach(t=>{if(t!==camera&&t.kind==='video'){t.stop();mediaRef.current.removeTrack(t);}});if(!mediaRef.current.getVideoTracks().includes(camera))mediaRef.current.addTrack(camera);}
-      if(localVideoRef.current)localVideoRef.current.srcObject=mediaRef.current;setScreenSharing(false);return;
-    }
-    try{
-      const display=await navigator.mediaDevices.getDisplayMedia({video:true});
-      const screenTrack=display.getVideoTracks()[0];
-      callRef.current.replaceVideoTrack(screenTrack);
-      if(localVideoRef.current)localVideoRef.current.srcObject=new MediaStream([screenTrack,...mediaRef.current.getAudioTracks()]);
-      screenTrack.onended=()=>{void stopScreenShare()};
-      setScreenSharing(true);
-    }catch{showToast('Screen sharing cancelled.');}
-  }
-
-  async function stopScreenShare(){
-    const camera=cameraTrackRef.current;
-    if(camera&&callRef.current)callRef.current.replaceVideoTrack(camera);
-    if(localVideoRef.current&&mediaRef.current)localVideoRef.current.srcObject=mediaRef.current;
-    setScreenSharing(false);
-  }
-
-  async function updateSecondary(file,v){
-    setFiles(old=>old.map(x=>x.id===file.id?{...x,content:v}:x));
-    const {error}=await supabase.from('files').update({content:v,updated_at:new Date().toISOString()}).eq('id',file.id);
-    if(!error) await realtimeRef.current?.send({type:'broadcast',event:'file-change',payload:{id:file.id,content:v}});
-    updatePreview(file.id,v);
-  }
-
-  function formatActive(){
-    if(!activeFile)return;
-    let v=content;
-    if(activeFile.language==='json'){
-      try{v=JSON.stringify(JSON.parse(v),null,settings.tab)}catch(e){return showToast('Invalid JSON: '+e.message)}
-    }else v=v.replace(/[ \t]+$/gm,'').replace(/\n*$/,'\n');
-    updateContent(v);
-  }
-
-  async function runActiveFile(){
-    const f=activeFile;if(!f)return;
-    setTerminalOpen(true);setConsoleLogs([]);
-    if(f.language==='html'||f.language==='css'){setPreviewKey(v=>v+1);showToast('Preview refreshed');return;}
-    if(f.language==='javascript'){
-      setRunDoc(`<script>(function(){const send=(t,args)=>parent.postMessage({ds:1,t,m:args.map(v=>typeof v==='object'?JSON.stringify(v):String(v)).join(' ')},'*');['log','info','warn','error'].forEach(k=>console[k]=(...a)=>send(k,a));addEventListener('error',e=>send('error',[e.message]));try{(0,eval)(${JSON.stringify(f.content||'')})}catch(e){send('error',[e.message])}send('done',[])})()</script>`);setRunKey(v=>v+1);return;
-    }
-    if(f.language==='python'){
-      setRunDoc(`<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script><script>(async()=>{const send=(t,a)=>parent.postMessage({ds:1,t,m:a},'*');try{const py=await loadPyodide({stdout:v=>send('log',[v]),stderr:v=>send('error',[v])});await py.runPythonAsync(${JSON.stringify(f.content||'')})}catch(e){send('error',[e.message])}send('done',[])})()</script>`);setRunKey(v=>v+1);return;
-    }
-    try{
-      const res=await fetch('/api/run-code',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language:f.language,code:f.content||'',stdin:''})});
-      const body=await res.json();
-      if(!res.ok)throw new Error(body.error||'Execution failed');
-      setConsoleLogs([{type:body.stderr?'error':'log',m:body.stderr||body.stdout||body.output||'Finished successfully.'}]);
-    }catch(error){setConsoleLogs([{type:'error',m:error.message}]);}
-  }
-
-  async function runTerminalCommand(){
-    const cmd=terminalInput.trim();if(!cmd)return;
-    setTerminalLines(old=>[...old,{type:'cmd',text:`$ ${cmd}`}]);setTerminalInput('');
-    try{
-      const res=await fetch('/api/run-code',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language:'shell',code:cmd,stdin:''})});
-      const body=await res.json();
-      if(!res.ok)throw new Error(body.error||'Runner unavailable');
-      setTerminalLines(old=>[...old,{type:body.stderr?'error':'out',text:body.stderr||body.stdout||'(no output)'}]);
-    }catch(error){setTerminalLines(old=>[...old,{type:'error',text:error.message}]);}
-  }
-
-  async function aiAsk(){
-    if(!aiPrompt.trim()||!activeFile)return;
-    setAiBusy(true);setAiResponse('');
-    try{
-      const res=await fetch('/api/ai',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt:aiPrompt,file:{name:activeFile.name,language:activeFile.language,content:content.slice(0,12000)}})});
-      const body=await res.json();
-      if(!res.ok)throw new Error(body.error||'AI assistant is not configured.');
-      setAiResponse(body.text||body.output||'');
-    }catch(error){setAiResponse(error.message);}
-    finally{setAiBusy(false);}
-  }
-
-  async function copyInvite(){await navigator.clipboard?.writeText(inviteLink);showToast('Invite link copied');}
-
-  async function downloadProject(){
-    if(!files.length)return showToast('There are no files to download.');
-    const zip=new JSZip();
-    files.forEach(f=>zip.file(f.name,f.content||''));
-    const blob=await zip.generateAsync({type:'blob'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(meeting?.name||'devsync-project')+'.zip';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500);
-  }
-
-  if(!supabase)return <Setup/>;
-  if(currentTV && meeting && screen==='tv')return <TVScreen meeting={meeting} preview={preview} onRefresh={()=>setPreviewKey(k=>k+1)} />;
-  if(screen==='landing')return <Landing mode={authMode} setMode={setAuthMode} authOpen={authOpen} setAuthOpen={setAuthOpen} submit={authSubmit} error={authError} busy={authBusy}/>;
-  if(screen==='dashboard')return <Dashboard profile={profile} meetings={meetings} create={()=>setCreateOpen(true)} open={openMeeting} logout={logout} del={deleteMeeting} ren={renameMeeting} createOpen={createOpen} setCreateOpen={setCreateOpen} meetingName={meetingName} setMeetingName={setMeetingName} doCreateMeeting={createMeeting} />;
-
-  const inviteLinkForMeeting=meeting?`${location.origin}/meeting/${meeting.id}?invite=${meeting.invite_token}`:'';
-
-  return <Meeting
-    profile={profile} meeting={meeting} files={files} folders={folders} active={activeFile} second={secondFile}
-    sessionUserId={session.user.id} content={content} setContent={updateContent} openFile={openFile} onSecondaryChange={updateSecondary} refreshSaved={()=>showToast('All changes saved')} formatActive={formatActive} createFile={()=>{setFileOpen(true);setFileName('index');setFileLang('html');}}
-    createFolder={()=>setFolderOpen(true)} deleteFolder={deleteFolder} upload={uploadFiles}
-    ctx={ctx} setCtx={setCtx} renameOpen={renameOpen} setRenameOpen={setRenameOpen} rename={rename} setRename={setRename} doRename={renameFile}
-    del={()=>ctx?.fileId&&deleteFile(ctx.fileId)} duplicate={duplicateFile}
-    inviteOpen={inviteOpen} setInviteOpen={setInviteOpen} inviteLink={inviteLinkForMeeting} copyInvite={copyInvite}
-    chatOpen={chatOpen} setChatOpen={setChatOpen} chat={chat} chatText={chatText} setChatText={setChatText} sendChat={sendChat}
-    terminalOpen={terminalOpen} setTerminalOpen={setTerminalOpen} terminalInput={terminalInput} setTerminalInput={setTerminalInput} terminalLines={terminalLines} runTerminal={runTerminalCommand}
-    aiOpen={aiOpen} setAiOpen={setAiOpen} aiPrompt={aiPrompt} setAiPrompt={setAiPrompt} aiResponse={aiResponse} aiBusy={aiBusy} aiAsk={aiAsk}
-    split={split} setSplit={setSplit} secondId={secondId} setSecondId={setSecondId} focusMode={focusMode} setFocusMode={setFocusMode}
-    settings={settings} setSettings={setSettings} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen} setConsoleLogs={setConsoleLogs} setPreviewKey={setPreviewKey} setAiOpen={setAiOpen} setTerminalOpen={setTerminalOpen} setSplit={setSplit}
-    preview={preview} previewWidth={previewWidth} setPreviewWidth={setPreviewWidth} previewKey={previewKey} setPreviewKey={setPreviewKey} runDoc={runDoc} runKey={runKey}
-    consoleLogs={consoleLogs} runDoc={runDoc} runKey={runKey} runActiveFile={runActiveFile}
-    members={members} presenceMap={presenceMap} callPeers={callPeers} mediaReady={mediaReady} localVideoRef={localVideoRef}
-    micOn={micOn} cameraOn={cameraOn} screenSharing={screenSharing} toggleMic={()=>toggleMedia('audio')} toggleCamera={()=>toggleMedia('video')} toggleScreen={toggleScreenShare}
-    downloadProject={downloadProject} onLeave={leaveMeeting} onInvite={()=>setInviteOpen(true)} onTV={()=>window.open('/tv/'+meeting.id,'_blank','noopener,noreferrer')} onSettings={()=>setSettingsOpen(true)}
-    createOpen={createOpen} setCreateOpen={setCreateOpen} meetingName={meetingName} setMeetingName={setMeetingName} doCreateMeeting={createMeeting}
-    fileOpen={fileOpen} setFileOpen={setFileOpen} fileName={fileName} setFileName={setFileName} fileLang={fileLang} setFileLang={setFileLang} folderId={folderId} setFolderId={setFolderId} doCreateFile={createFile}
-    folderOpen={folderOpen} setFolderOpen={setFolderOpen} folderName={folderName} setFolderName={setFolderName} doCreateFolder={createFolder}
-  />;
-
-  async function deleteMeeting(m){
-    if(!confirm(`Delete "${m.name}" and all its files?`))return;
-    const {error}=await supabase.from('meetings').delete().eq('id',m.id);if(error)return showToast(error.message);await loadMeetings();showToast('Meeting deleted');
-  }
-
-  async function renameMeeting(m){
-    const n=prompt('Rename meeting',m.name);if(!n||!n.trim())return;
-    const {error}=await supabase.from('meetings').update({name:n.trim()}).eq('id',m.id);if(error)return showToast(error.message);await loadMeetings();
-  }
-}
-
-function Landing({mode,setMode,authOpen,setAuthOpen,submit,error,busy}){
-  return <div className="landing-page">
-    <nav className="nav">
-      <div className="brand"><span className="logo">&lt;/&gt;</span>DevSync</div>
-      <div className="navlinks"><a href="#features">Features</a><a href="#features">Workspace</a><a href="#features">Docs</a><a href="#features">About</a></div>
-      <div className="navactions"><button className="btn" onClick={()=>{setMode('login');setAuthOpen(true)}}>Log In</button><button className="btn primary" onClick={()=>{setMode('register');setAuthOpen(true)}}>Get Started Free</button></div>
-    </nav>
-    <section className="hero">
-      <div>
-        <div className="eyebrow">● Build together. In real time.</div>
-        <h1>The collaborative workspace for <span className="gradient">people who build.</span></h1>
-        <p>Code together, talk together, preview together and keep the whole project in one place. DevSync is designed for startup teams, students and developers working from anywhere — or from the same room.</p>
-        <div className="heroBtns"><button className="btn primary" onClick={()=>{setMode('register');setAuthOpen(true)}}>Start Building Free →</button><button className="btn" onClick={()=>document.getElementById('features')?.scrollIntoView({behavior:'smooth'})}>Explore workspace</button></div>
-      </div>
-      <HeroWorkspace />
-    </section>
-    <section id="features" className="feature-section"><h2>Everything you need to <span className="gradient">build together</span></h2><div className="feature-grid">{FEATURES.map(([t,d,ic])=><div className="feature-card" key={t}><div className="feature-icon">{ic}</div><h3>{t}</h3><p>{d}</p></div>)}</div></section>
-    {authOpen&&<div className="modal auth-modal"><form className="auth-card" onSubmit={submit}><div className="brand"><span className="logo">&lt;/&gt;</span>DevSync</div><h2>{mode==='login'?'Welcome back':'Create your account'}</h2><p>{mode==='login'?'Sign in to your workspace.':'Start with an empty workspace and invite your team when you are ready.'}</p>{mode==='register'&&<label>Name<input name="name" autoComplete="name"/></label>}<label>Email<input name="email" type="email" required autoComplete="email"/></label><label>Password<input name="password" type="password" minLength="6" required autoComplete={mode==='login'?'current-password':'new-password'}/></label>{error&&<div className="error">{error}</div>}<button className="btn primary full" disabled={busy}>{busy?'Working…':mode==='login'?'Sign In':'Create Account'}</button><button type="button" className="link" onClick={()=>setMode(mode==='login'?'register':'login')}>{mode==='login'?'Need an account? Create one':'Already have an account? Sign in'}</button><button type="button" className="link" onClick={()=>setAuthOpen(false)}>Cancel</button></form></div>}
-  </div>
-}
-
-function HeroWorkspace(){
-  return <div className="hero-mock">
-    <div className="mock-top"><b>DevSync</b><span>Project workspace</span><span className="live">● Live</span></div>
-    <div className="mock-body">
-      <aside><b>Files</b><div>⌄ src</div><div className="indent">⌄ components</div><div className="indent">CodeEditor.tsx</div><div className="indent">Preview.tsx</div><div>package.json</div></aside>
-      <div className="mock-code"><div className="mock-tabs">Home.tsx ×&nbsp;&nbsp; CodeEditor.tsx &nbsp;&nbsp; + New</div><pre>{`const Home = () => {
-  const [output, setOutput] = useState('');
+  /* ------------------------------------------------------------- run/fmt */
+  const log = useCallback(entry => setLogs(l => [...l.slice(-499), entry]), []);
 
   async function run() {
-    const result = await runCode(code);
-    setOutput(result);
+    const f = filesRef.current.find(x => x.id === activeRef.current);
+    if (!f) return toast('Open a file first.');
+    const code = f.content || '';
+    setLogs([]);
+    const lang = f.language;
+    if (lang === 'html' || lang === 'css') {
+      setPreviewKey(k => k + 1);
+      log({ type: 'info', m: `Preview refreshed (${f.name}).` });
+      return;
+    }
+    if (lang === 'javascript') {
+      const host = pickPreviewFile(filesRef.current, f);
+      if (host && host.id !== f.id && buildPreview(filesRef.current, f).includes(`data-devsync="${f.name}"`)) {
+        setPreviewKey(k => k + 1);
+        log({ type: 'info', m: `${f.name} is linked from ${host.name} — preview refreshed. Its console output appears here.` });
+        return;
+      }
+      log({ type: 'info', m: `▶ Running ${f.name}…` });
+      await runJavaScript(code, log);
+      return;
+    }
+    if (lang === 'python') {
+      log({ type: 'info', m: `▶ Running ${f.name}…` });
+      await runPython(code, log);
+      return;
+    }
+    if (SERVER_LANGS.has(lang)) {
+      log({ type: 'info', m: `▶ Running ${f.name} on the server…` });
+      try {
+        const body = await runOnServer(lang, code);
+        const out = [];
+        if (body.compile_output) out.push({ type: 'error', m: body.compile_output });
+        if (body.stdout) out.push({ type: 'log', m: body.stdout });
+        if (body.stderr) out.push({ type: 'error', m: body.stderr });
+        if (body.message) out.push({ type: 'error', m: body.message });
+        if (body.status?.id && body.status.id !== 3 && !out.length) out.push({ type: 'error', m: body.status.description });
+        if (!out.length) out.push({ type: 'info', m: 'Finished with no output.' });
+        setLogs(l => [...l, ...out]);
+      } catch (e) {
+        log({ type: 'error', m: `${LANGS[lang][0]} needs a code-execution server. ${e.message}` });
+      }
+      return;
+    }
+    log({ type: 'info', m: `${LANGS[lang]?.[0] || lang} files can't be run.` });
+  }
+
+  function format() {
+    const f = filesRef.current.find(x => x.id === activeRef.current);
+    if (!f) return toast('Open a file first.');
+    const api = registry.current[f.id];
+    const current = api?.getText() ?? f.content ?? '';
+    let next;
+    try { next = formatSource(f.language, current, settings.tab); } catch (e) { return toast('Invalid JSON: ' + e.message); }
+    if (next === current) return toast('Already formatted');
+    if (!api) return toast('The editor is still connecting. Try again in a moment.');
+    api.setText(next);
+    toast('Formatted');
+  }
+
+  const runShell = cmd => runOnServer('shell', cmd);
+
+  function sendChat(text) {
+    const payload = { name: userName, message: text.trim() };
+    setChat(old => [...old, payload]);
+    void channelRef.current?.send({ type: 'broadcast', event: 'chat', payload });
+  }
+
+  /* -------------------------------------------------------------- render */
+  if (!supabase) return <Setup />;
+  if (session === undefined) return <Loading />;
+  if (session && screen === 'landing') return <Loading text="Opening your workspace…" />;
+  if (!session) {
+    return <Landing mode={authMode} setMode={m => { setAuthMode(m); setAuthError(''); setAuthNotice(''); }} authOpen={authOpen} setAuthOpen={setAuthOpen} submit={authSubmit} error={authError} notice={authNotice} busy={authBusy} />;
+  }
+  if (screen === 'tv' && meeting) return <TVScreen meeting={meeting} preview={preview} onRefresh={() => setPreviewKey(k => k + 1)} key={previewKey} />;
+  if (screen === 'dashboard' || !meeting) {
+    return (
+      <>
+        <Dashboard profile={profile} userId={userId} meetings={meetings} onCreate={createMeeting} onOpen={id => openMeeting(id, false)} onRename={renameMeeting} onDelete={deleteMeeting} onLogout={logout}
+          createOpen={createOpen} setCreateOpen={setCreateOpen} meetingName={meetingName} setMeetingName={setMeetingName} busy={busy} />
+        {busy && <div className="busy-overlay"><div className="spinner" /></div>}
+      </>
+    );
   }
 
   return (
-    <main>
-      <CodeEditor />
-      <Output value={output} />
-    </main>
+    <>
+      <Workspace
+        meeting={meeting} files={files} folders={folders} assets={assets} active={activeFile} second={secondFile} secondId={secondId} setSecondId={setSecondId}
+        tabs={tabs} closeTab={closeTab} openFile={openFile} onContent={onContent} onSaved={onSaved} registry={registry}
+        settings={settings} setSettings={setSettings} split={split} setSplit={setSplit} focusMode={focusMode} setFocusMode={setFocusMode}
+        run={run} stop={() => { stopRun('Stopped.'); }} format={format} logs={logs} clearLogs={() => setLogs([])}
+        preview={preview} previewKey={previewKey} setPreviewKey={setPreviewKey} previewWidth={previewWidth} setPreviewWidth={setPreviewWidth} openPreviewTab={openPreviewTab}
+        members={members} userId={userId} userName={userName}
+        callPeers={callPeers} localStream={localStream} tileStream={shareStream || localStream} screenSharing={Boolean(shareStream)}
+        micOn={micOn} cameraOn={cameraOn} hasAudio={Boolean(localStream?.getAudioTracks().length)} hasVideo={Boolean(localStream?.getVideoTracks().length)}
+        toggleMic={() => toggleMedia('audio')} toggleCamera={() => toggleMedia('video')} toggleScreen={toggleScreen}
+        chat={chat} sendChat={sendChat} inviteLink={`${location.origin}/meeting/${meeting.id}?invite=${meeting.invite_token}`}
+        upload={upload} download={download} downloadOne={downloadOne} downloadAsset={downloadAsset} deleteAsset={deleteAsset}
+        createFile={createFile} createFolder={createFolder} deleteFolder={deleteFolder} deleteFile={deleteFile} renameFile={renameFile} moveFile={moveFile} duplicateFile={duplicateFile}
+        runShell={runShell} openTV={() => window.open('/tv/' + meeting.id, '_blank', 'noopener,noreferrer')} leave={leave}
+      />
+      {busy && <div className="busy-overlay"><div className="spinner" /></div>}
+    </>
   );
-};`}</pre></div>
-      <div className="mock-side"><div><b>OUTPUT</b><div className="fake">Hello, World!</div></div><div><b>TEAM CALL</b><div className="faces"><span>You</span><span>Sarah</span><span>Alex</span><span>Priya</span></div></div></div>
-    </div>
-  </div>
 }
 
-function Dashboard({profile,meetings,create,open,logout,del,ren,createOpen,setCreateOpen,meetingName,setMeetingName,doCreateMeeting}){
-  const [q,setQ]=useState('');
-  const list=meetings.filter(m=>m.name.toLowerCase().includes(q.toLowerCase()));
-  const copy=async m=>{await navigator.clipboard?.writeText(`${location.origin}/meeting/${m.id}?invite=${m.invite_token}`);showToastGlobal('Invite link copied')};
-  return <div className="app">
-    <header className="bar"><div className="brand"><span className="logo">&lt;/&gt;</span>DevSync</div><div className="user"><span>{profile?.name}</span><span className="avatar">{(profile?.name||'D')[0].toUpperCase()}</span><button className="btn" onClick={logout}>Log out</button></div></header>
-    <main className="dash">
-      <div className="dash-head"><div><div className="eyebrow">Your workspace</div><h1>Welcome back, {profile?.name?.split(' ')[0]||'developer'}</h1><p>{meetings.length} workspace{meetings.length===1?'':'s'} · everything starts empty</p></div><button className="btn primary" onClick={create}>＋ Create Meeting</button></div>
-      {meetings.length>0&&<input className="search" placeholder="Search meetings…" value={q} onChange={e=>setQ(e.target.value)}/>}
-      {meetings.length===0?<div className="empty"><h3>No meetings yet</h3><p>Create a private room, then invite collaborators. Your editor starts completely empty.</p><button className="btn primary" onClick={create}>Create your first meeting</button></div>:list.length===0?<div className="empty"><h3>No match</h3><p>Nothing matches “{q}”.</p></div>:<div className="meetings">{list.map(m=><div className="meeting-card" key={m.id}><div className="card-top"><span className="live">● READY</span><span>{new Date(m.created_at).toLocaleDateString()}</span></div><h3>{m.name}</h3><p>Private collaborative workspace</p><div className="meeting-meta"><span className="acts"><button className="icon" title="Copy invite" onClick={()=>copy(m)}>↗</button><button className="icon" title="Rename" onClick={()=>ren(m)}>✎</button><button className="icon" title="Delete" onClick={()=>del(m)}>🗑</button></span><button className="btn" onClick={()=>open(m.id)}>Open workspace</button></div></div>)}</div>}
-    </main>
-    {createOpen&&<Modal title="Create meeting" close={()=>setCreateOpen(false)}><p>Your new meeting starts completely empty. Invite collaborators after it is created.</p><label>Meeting name<input autoFocus value={meetingName} onChange={e=>setMeetingName(e.target.value)} placeholder="e.g. Startup MVP"/></label><div className="modal-actions"><button className="btn" onClick={()=>setCreateOpen(false)}>Cancel</button><button className="btn primary" onClick={doCreateMeeting}>Create meeting</button></div></Modal>}
-  </div>
-}
-
-function Meeting(p){
-  const [setOpen,setSetOpen]=useState(false);
-  const [pal,setPal]=useState(false);
-  const [pq,setPq]=useState('');
-  const [fq,setFq]=useState('');
-  const [tabs,setTabs]=useState([]);
-  const [secondDraft,setSecondDraft]=useState('');
-  const [consoleState,setConsoleState]=useState(true);
-  const up=useRef(null);
-
-  useEffect(()=>{if(p.active&&!tabs.includes(p.active.id))setTabs(t=>[...t,p.active.id]);},[p.active?.id]);
-  useEffect(()=>{if(p.second)setSecondDraft(p.second.content||'');},[p.second?.id]);
-  useEffect(()=>{const h=e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();setPal(v=>!v);setPq('');}if(e.key==='Escape')setPal(false)};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h)},[]);
-
-  const shown=p.files.filter(f=>f.name.toLowerCase().includes(fq.toLowerCase()));
-  const tabFiles=tabs.map(id=>p.files.find(f=>f.id===id)).filter(Boolean);
-  const commands=[
-    ['New file','＋',p.createFile],['New folder','▱',p.createFolder],['Upload assets','⇪',()=>up.current?.click()],['Run active file','▶',p.runActiveFile],
-    ['Split editor','▦',()=>p.setSplit(true)],['Focus mode','◎',()=>p.setFocusMode(v=>!v)],['Invite collaborators','↗',p.onInvite],['Team chat','✉',()=>p.setChatOpen(v=>!v)],
-    ['Shared terminal','>_',()=>p.setTerminalOpen(v=>!v)],['AI assistant','✦',()=>p.setAiOpen(v=>!v)],['Download project ZIP','⬇',p.downloadProject],['TV / Room mode','▣',p.onTV],['Settings','⚙',()=>setSetOpen(true)],['Back to dashboard','←',p.onLeave],
-    ...p.files.map(f=>['Open '+f.name,'◉',()=>p.openFile(f)])
-  ].filter(([n])=>n.toLowerCase().includes(pq.toLowerCase()));
-
-  const renderEditor=(file,secondary=false)=> <Editor file={file} value={secondary?(file?.content||secondDraft):p.content} onChange={secondary?(v)=>{setSecondDraft(v); if(file){p.onSecondaryChange(file,v);}}:p.setContent} onSave={p.refreshSaved} onRun={p.runActiveFile} fs={p.settings.fs} tab={p.settings.tab} pair={p.settings.pair}/>;
-
-  return <div className={'app meeting-app '+(p.focusMode?'focus-mode':'')} onClick={()=>p.ctx&&p.setCtx(null)}>
-    <header className="bar">
-      <div className="user"><button className="btn" onClick={p.onLeave}>←</button><div><b>{p.meeting?.name}</b><div className="live">● LIVE · {p.members.length||1} online</div></div></div>
-      <div className="user">
-        <button className="btn" onClick={()=>setPal(true)}>⌘K</button>
-        <button className="btn" onClick={p.onInvite}>Invite</button>
-        <button className="btn" onClick={()=>p.setChatOpen(v=>!v)}>Chat</button>
-        <button className="btn" onClick={()=>p.setAiOpen(v=>!v)}>AI</button>
-        <button className="btn" onClick={()=>setSetOpen(true)}>Settings</button>
-        <button className="btn" onClick={p.onTV}>TV / Room</button>
-      </div>
-    </header>
-
-    <div className="work">
-      {!p.focusMode&&<aside className="explorer" onContextMenu={e=>{e.preventDefault();p.setCtx({x:e.clientX,y:e.clientY,fileId:null,folderId:null})}}>
-        <div className="explorer-head"><b>EXPLORER</b><span><button className="icon" title="Upload" onClick={()=>up.current?.click()}>⇪</button><button className="icon" title="New folder" onClick={p.createFolder}>▱</button><button className="icon" title="New file" onClick={p.createFile}>＋</button></span></div>
-        <input ref={up} type="file" hidden multiple onChange={e=>{p.upload([...e.target.files]);e.target.value=''}}/>
-        <input className="search small" placeholder="Filter files…" value={fq} onChange={e=>setFq(e.target.value)}/>
-        <div className="tree-title">PROJECT</div>
-        {p.folders.map(folder=><div className="folder-row" key={folder.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();p.setCtx({x:e.clientX,y:e.clientY,fileId:null,folderId:folder.id})}}>▾ {folder.name}<button className="folder-delete" onClick={e=>{e.stopPropagation();p.deleteFolder(folder.id)}}>×</button></div>)}
-        {p.files.length===0?<div className="tree-empty">No files yet.<br/><br/>Right-click or use ＋ to create your first file.</div>:shown.map(f=><div key={f.id} className={'file '+(f.id===p.active?.id?'active':'')} onClick={()=>p.openFile(f)} onContextMenu={e=>{e.preventDefault();e.stopPropagation();p.setCtx({x:e.clientX,y:e.clientY,fileId:f.id,folderId:f.folder_id||null})}}>◉ {f.name}<span>{LANGS[f.language]?.[0]||f.language}</span></div>)}
-      </aside>}
-
-      <section className="editor">
-        <div className="tabs">{tabFiles.length?tabFiles.map(f=><span key={f.id} className={'tab '+(f.id===p.active?.id?'active':'')} onClick={()=>p.openFile(f)}>{f.name}<b className="x" onClick={e=>{e.stopPropagation();setTabs(t=>t.filter(id=>id!==f.id));if(f.id===p.active?.id){const next=tabFiles.find(x=>x.id!==f.id);if(next)p.openFile(next);}}}>×</b></span>):<span className="tab">No file open</span>}</div>
-        <div className="toolbar"><span>LANGUAGE</span><span className="pill">{p.active?LANGS[p.active.language]?.[0]||p.active.language:'Plain Text'}</span><button className="pill fmt" onClick={p.formatActive}>Format</button><button className="pill" onClick={()=>p.setSplit(v=>!v)}>{p.split?'Unsplit':'＋ Panel'}</button><button className="run" onClick={p.runActiveFile}>▶ Run</button></div>
-        {p.split?<div className="split-editors"><div>{p.active?renderEditor(p.active):<div className="editor-empty">Create a file to start coding.</div>}</div><div><select className="split-select" value={p.secondId||''} onChange={e=>p.setSecondId(e.target.value||null)}><option value="">Choose second file…</option>{p.files.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>{p.second?renderEditor(p.second,true):<div className="editor-empty">Choose another file for the second panel.</div>}</div></div>:p.active?renderEditor(p.active):<div className="editor-empty">Create a file to start coding.</div>}
-        {p.focusMode&&<div className="focus-exit"><button className="btn" onClick={()=>p.setFocusMode(false)}>Exit Focus Mode</button></div>}
-      </section>
-
-      {!p.focusMode&&<section className="preview"><div className="preview-head"><span>LIVE PREVIEW</span><span className="devs"><button className={'icon '+(p.previewWidth==='100%'?'on':'')} onClick={()=>p.setPreviewWidth('100%')}>▭</button><button className={'icon '+(p.previewWidth==='768px'?'on':'')} onClick={()=>p.setPreviewWidth('768px')}>▯</button><button className={'icon '+(p.previewWidth==='390px'?'on':'')} onClick={()=>p.setPreviewWidth('390px')}>▮</button><button className="icon" onClick={()=>p.setPreviewKey(v=>v+1)}>⟳</button><button className="icon" onClick={()=>{if(!p.preview)return;const u=URL.createObjectURL(new Blob([p.preview],{type:'text/html'}));window.open(u,'_blank')}}>⧉</button><button className="icon" onClick={()=>setConsoleState(v=>!v)}>▤</button></span></div>{p.preview?<iframe key={p.previewKey} title="preview" srcDoc={p.preview} style={{width:p.previewWidth,alignSelf:'center'}} sandbox="allow-scripts allow-forms allow-modals"/>:<div className="preview-empty">Create an HTML file to see live output.<br/>Use <b>&lt;link&gt;</b> and <b>&lt;script&gt;</b> to connect local CSS and JS.</div>}{consoleState&&<div className="console"><div className="console-head">OUTPUT <button className="icon" onClick={()=>p.setConsoleLogs([])}>Clear</button></div>{p.consoleLogs.length===0?<div className="log info">Run JavaScript, Python or another supported language to see output here.</div>:p.consoleLogs.map((l,i)=><div key={i} className={'log '+(l.type||'info')}>{l.m||l.text}</div>)}</div>}</section>}
-
-      {!p.focusMode&&<aside className="team">
-        <div className="team-title">TEAM · {Math.max(1,p.members.length)} <button className="icon" onClick={p.onInvite}>＋</button></div>
-        <div className="call-grid">
-          {p.callPeers.map(peer=><RemoteTile key={peer.id} peer={peer}/>)}
-          <div className="call-tile local"><video ref={p.localVideoRef} muted autoPlay playsInline/><div className="call-label">You</div></div>
-        </div>
-        <div className="call-controls"><button className={'call-control '+(!p.micOn?'off':'')} onClick={p.toggleMic}>{p.micOn?'🎙':'🔇'} Mic</button><button className={'call-control '+(!p.cameraOn?'off':'')} onClick={p.toggleCamera}>{p.cameraOn?'◉':'○'} Cam</button><button className={'call-control '+(p.screenSharing?'on':'')} onClick={p.toggleScreen}>{p.screenSharing?'Stop share':'Share screen'}</button></div>
-        <div className="member-list">{(p.members.length?p.members:[{name:p.profile?.name||'You',id:p.sessionUserId}]).map((m,i)=><div className="member-row" key={m.id||i}><span className="avatar">{(m.name||'?')[0].toUpperCase()}</span><div><b>{m.name||'Developer'}</b><small>{m.activeFile?'Editing now':'In workspace'}</small></div><span className="presence-dot"/></div>)}</div>
-        <div className="team-note">Invite collaborators to bring their editors, cameras and ideas into this room.</div>
-      </aside>}
-    </div>
-
-    {p.ctx&&<div className="context" style={{left:p.ctx.x,top:p.ctx.y}} onClick={e=>e.stopPropagation()}>
-      {p.ctx.folderId?<><button onClick={()=>{p.setFolderId(p.ctx.folderId);p.createFile();p.setCtx(null)}}>New file here</button><button onClick={()=>p.deleteFolder(p.ctx.folderId)}>Delete folder</button></>:<><button onClick={p.createFile}>New file</button><button onClick={p.createFolder}>New folder</button>{p.ctx.fileId&&<><button onClick={p.rename}>Rename</button><button onClick={p.duplicate}>Duplicate</button><button onClick={()=>navigator.clipboard?.writeText('/'+(p.files.find(x=>x.id===p.ctx.fileId)?.name||''))}>Copy path</button><button onClick={()=>downloadOne(p.files.find(x=>x.id===p.ctx.fileId))}>Download</button><button className="danger" onClick={p.del}>Delete</button></>}</>}
-    </div>}
-
-    {p.chatOpen&&<div className="chat"><div className="chat-head">Team Chat <button className="icon" onClick={()=>p.setChatOpen(false)}>×</button></div><div className="messages">{p.chat.length===0?<div className="log info">No messages yet. Say hello.</div>:p.chat.map((m,i)=><div key={i}><b>{m.name}</b>{m.message}</div>)}</div><div className="chat-send"><input value={p.chatText} onChange={e=>p.setChatText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')p.sendChat()}} placeholder="Message the team…"/><button className="btn primary" onClick={p.sendChat}>Send</button></div></div>}
-
-    {p.terminalOpen&&<div className="chat terminal-drawer"><div className="chat-head">Shared Terminal <button className="icon" onClick={()=>p.setTerminalOpen(false)}>×</button></div><div className="terminal-output">{p.terminalLines.map((l,i)=><div className={'term-line '+l.type} key={i}>{l.text}</div>)}</div><div className="chat-send"><input value={p.terminalInput} onChange={e=>p.setTerminalInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')p.runTerminal()}} placeholder="run a sandboxed command…"/><button className="btn primary" onClick={p.runTerminal}>Run</button></div></div>}
-
-    {p.aiOpen&&<div className="chat ai-drawer"><div className="chat-head">Shared AI <button className="icon" onClick={()=>p.setAiOpen(false)}>×</button></div><div className="ai-body"><div className="ai-note">Ask about the selected file. The AI endpoint is server-side and can be connected to an OpenAI-compatible provider without exposing its key to the browser.</div><textarea value={p.aiPrompt} onChange={e=>p.setAiPrompt(e.target.value)} placeholder="Explain this code, find bugs, suggest changes…"/><button className="btn primary" disabled={p.aiBusy} onClick={p.aiAsk}>{p.aiBusy?'Thinking…':'Ask AI'}</button><pre>{p.aiResponse}</pre></div></div>}
-
-    {p.fileOpen&&<Modal title="Create new file" close={()=>p.setFileOpen(false)}><label>File name<input value={p.fileName} onChange={e=>p.setFileName(e.target.value)} autoFocus/></label><label>Language<select value={p.fileLang} onChange={e=>p.setFileLang(e.target.value)}>{Object.entries(LANGS).map(([k,v])=><option key={k} value={k}>{v[0]} (.{v[1]})</option>)}</select></label><label>Folder<select value={p.folderId||''} onChange={e=>p.setFolderId(e.target.value||null)}><option value="">Project root</option>{p.folders.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select></label><div className="modal-actions"><button className="btn" onClick={()=>p.setFileOpen(false)}>Cancel</button><button className="btn primary" onClick={p.doCreateFile}>Create file</button></div></Modal>}
-    {p.folderOpen&&<Modal title="Create new folder" close={()=>p.setFolderOpen(false)}><label>Folder name<input value={p.folderName} onChange={e=>p.setFolderName(e.target.value)} autoFocus/></label><div className="modal-actions"><button className="btn" onClick={()=>p.setFolderOpen(false)}>Cancel</button><button className="btn primary" onClick={p.doCreateFolder}>Create folder</button></div></Modal>}
-    {p.renameOpen&&<Modal title="Rename file" close={()=>p.setRenameOpen(false)}><label>New name<input value={p.rename} onChange={e=>p.setRename(e.target.value)} autoFocus/></label><div className="modal-actions"><button className="btn" onClick={()=>p.setRenameOpen(false)}>Cancel</button><button className="btn primary" onClick={p.doRename}>Rename</button></div></Modal>}
-    {p.inviteOpen&&<Modal title="Invite collaborators" close={()=>p.setInviteOpen(false)}><p>Share this private meeting link. Collaborators will join after signing in.</p><input value={p.inviteLink} readOnly/><div className="modal-actions"><button className="btn primary" onClick={p.copyInvite}>Copy link</button></div></Modal>}
-    {setOpen&&<Modal title="Editor settings" close={()=>setSetOpen(false)}><label>Font size<input type="range" min="11" max="22" value={p.settings.fs} onChange={e=>p.setSettings({...p.settings,fs:+e.target.value})}/></label><label>Tab size<select value={p.settings.tab} onChange={e=>p.setSettings({...p.settings,tab:+e.target.value})}><option value="2">2 spaces</option><option value="4">4 spaces</option></select></label><label className="check"><input type="checkbox" checked={p.settings.pair} onChange={e=>p.setSettings({...p.settings,pair:e.target.checked})}/> Auto-close brackets and quotes</label><div className="modal-actions"><button className="btn" onClick={()=>setSetOpen(false)}>Done</button></div></Modal>}
-    {p.runDoc&&<iframe title="sandbox-runner" key={p.runKey} srcDoc={p.runDoc} sandbox="allow-scripts" style={{display:'none'}}/>}
-    {pal&&<div className="modal pal" onClick={e=>e.target===e.currentTarget&&setPal(false)}><div className="palette"><input autoFocus value={pq} onChange={e=>setPq(e.target.value)} placeholder="Type a command or file name…"/>{commands.slice(0,10).map(([n,i,f])=><button key={n} onClick={()=>{setPal(false);f()}}><span>{i}</span>{n}</button>)}</div></div>}
-  </div>
-}
-
-function Editor({file,value,onChange,onSave,onRun,fs,tab,pair}){
-  const gutter=useRef(null);const [pos,setPos]=useState([1,1]);const lines=Math.max(1,value.split('\n').length);const style={font:`${fs}px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace`};
-  function cursor(t){const b=t.value.slice(0,t.selectionStart).split('\n');setPos([b.length,b[b.length-1].length+1]);}
-  function insert(t,txt,back=0){const a=t.selectionStart,b=t.selectionEnd;const next=value.slice(0,a)+txt+value.slice(b);onChange(next);requestAnimationFrame(()=>{t.selectionStart=t.selectionEnd=a+txt.length-back;cursor(t)})}
-  function key(e){const t=e.target,mod=e.ctrlKey||e.metaKey;if(e.key==='Tab'){e.preventDefault();insert(t,' '.repeat(tab));return}if(mod&&e.key.toLowerCase()==='s'){e.preventDefault();onSave();return}if(mod&&e.key==='Enter'){e.preventDefault();onRun();return}if(e.key==='Enter'){const a=t.selectionStart,ls=value.lastIndexOf('\n',a-1)+1,indent=(value.slice(ls,a).match(/^\s*/)||[''])[0],prev=value[a-1],extra=prev&&'{[(:'.includes(prev)?' '.repeat(tab):'';e.preventDefault();insert(t,'\n'+indent+extra);return}if(pair&&PAIRS[e.key]&&!mod){e.preventDefault();insert(t,e.key+PAIRS[e.key],1)}}
-  return <><div className="code-wrap"><div className="gutter" style={style} ref={gutter}>{Array.from({length:lines},(_,i)=><div key={i}>{i+1}</div>)}</div><textarea className="code" style={style} value={value} onChange={e=>{onChange(e.target.value);cursor(e.target)}} onClick={e=>cursor(e.target)} onKeyUp={e=>cursor(e.target)} onScroll={e=>{gutter.current.scrollTop=e.target.scrollTop}} spellCheck="false" wrap="off" aria-label={`${file?.name||'code'} editor`}/></div><div className="statusbar"><span>Ln {pos[0]}, Col {pos[1]}</span><span>{file?.name||''}</span><span>Ctrl/Cmd+S save · Ctrl/Cmd+Enter run</span></div></>;
-}
-
-function RemoteTile({peer}){const ref=useRef(null);useEffect(()=>{if(ref.current)ref.current.srcObject=peer.stream},[peer.stream]);return <div className="call-tile"><video ref={ref} autoPlay playsInline/><div className="call-label">{peer.name}</div></div>}
-
-function Modal({title,close,children}){return <div className="modal" onClick={e=>{if(e.currentTarget===e.target)close()}}><div className="modal-card"><button className="close" onClick={close}>×</button><h2>{title}</h2>{children}</div></div>}
-
-function TVScreen({meeting,preview,onRefresh}){return <div className="tv"><div className="tv-bar"><div className="brand"><span className="logo">&lt;/&gt;</span>{meeting?.name||'DevSync Room'}</div><div className="tv-status"><span className="live">● LIVE OUTPUT</span><button className="btn" onClick={onRefresh}>Refresh</button></div></div>{preview?<iframe title="DevSync TV output" srcDoc={preview} sandbox="allow-scripts allow-forms allow-modals"/>:<div className="preview-empty">Waiting for an HTML file in this meeting…</div>}</div>}
-
-function Setup(){return <div className="setup"><div><div className="brand"><span className="logo">&lt;/&gt;</span>DevSync</div><h1>Connect Supabase</h1><p>In Vercel, add the environment variables below. Code execution, TURN and AI are configured separately on the server.</p><pre>VITE_SUPABASE_URL\nVITE_SUPABASE_PUBLISHABLE_KEY\n\nOptional server-side:\nJUDGE0_URL\nJUDGE0_HEADERS_JSON\nVITE_TURN_URL\nVITE_TURN_USERNAME\nVITE_TURN_CREDENTIAL\nAI_BASE_URL\nAI_API_KEY\nAI_MODEL</pre></div></div>}
-
-function showToastGlobal(text){window.dispatchEvent(new CustomEvent('ds-toast',{detail:text}));}
-function escapeHtml(v){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
-function downloadOne(file){if(!file)return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([file.content||''],{type:'text/plain'}));a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-
-function Toasts(){const [t,setT]=useState('');useEffect(()=>{let id;const h=e=>{setT(e.detail);clearTimeout(id);id=setTimeout(()=>setT(''),2400)};window.addEventListener('ds-toast',h);return()=>window.removeEventListener('ds-toast',h)},[]);return t?<div className="toast" role="status">{t}</div>:null;}
-
-createRoot(document.getElementById('root')).render(<><App/><Toasts/></>);
+createRoot(document.getElementById('root')).render(<><App /><Toasts /></>);
