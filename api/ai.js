@@ -5,7 +5,7 @@ function json(body, status = 200) {
   });
 }
 
-export default async function handler(req) {
+async function handle(req) {
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
 
   const baseUrl = process.env.AI_BASE_URL;
@@ -51,3 +51,10 @@ export default async function handler(req) {
     return json({ error: error instanceof Error ? error.message : 'AI provider failed.' }, 502);
   }
 }
+
+// Vercel Functions Web Standard export (a bare `export default function(req)` would receive a Node request).
+export default {
+  async fetch(request) {
+    return handle(request);
+  },
+};
