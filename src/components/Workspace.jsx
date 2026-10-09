@@ -24,7 +24,12 @@ export default function Workspace(p) {
   const [consoleOpen, setConsoleOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [sideTab, setSideTab] = useState('chat');
+  const [sideOpen, setSideOpen] = useState(false);   // slide-over on narrow screens
+  const [navOpen, setNavOpen] = useState(false);
+  const [ratio, setRatio] = useState(0.6);           // share of the height used by the code editor
+  const [dragging, setDragging] = useState(false);
+  const [unread, setUnread] = useState(0);
   const [aiOpen, setAiOpen] = useState(false);
   const [termOpen, setTermOpen] = useState(false);
   const [fileModal, setFileModal] = useState(null);     // {name, lang, folderId}
@@ -40,6 +45,8 @@ export default function Workspace(p) {
   const [termLines, setTermLines] = useState([{ type: 'info', text: 'Shared terminal ready. Commands run in a sandboxed server runner.' }]);
   const up = useRef(null);
   const msgEnd = useRef(null);
+  const mainRef = useRef(null);
+  const seen = useRef(p.chat.length);
 
   const { active, second, files, folders, tabs } = p;
 
@@ -52,7 +59,23 @@ export default function Workspace(p) {
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, []);
-  useEffect(() => { msgEnd.current?.scrollIntoView({ block: 'end' }); }, [p.chat.length, chatOpen]);
+  useEffect(() => { msgEnd.current?.scrollIntoView?.({ block: "end" }); }, [p.chat.length, sideTab]);
+  useEffect(() => {
+    if (sideTab === 'chat') { seen.current = p.chat.length; setUnread(0); } else setUnread(Math.max(0, p.chat.length - seen.current));
+  }, [p.chat.length, sideTab]);
+
+  const startDrag = e => {
+    e.preventDefault();
+    setDragging(true);
+    const move = ev => {
+      const r = mainRef.current?.getBoundingClientRect();
+      if (r) setRatio(Math.min(0.8, Math.max(0.2, (ev.clientY - r.top) / r.height)));
+    };
+    const up = () => { setDragging(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const showChat = () => { setSideTab('chat'); setSideOpen(true); };
 
   const filter = fq.trim().toLowerCase();
   const fileMatches = f => !filter || f.name.toLowerCase().includes(filter);
@@ -69,7 +92,7 @@ export default function Workspace(p) {
     ['Toggle focus mode', '◎', () => p.setFocusMode(v => !v)],
     ['Toggle output console', '▤', () => setConsoleOpen(v => !v)],
     ['Invite collaborators', '↗', () => setInviteOpen(true)],
-    ['Team chat', '✉', () => setChatOpen(v => !v)],
+    ['Open team chat', '✉', showChat],
     ['Shared terminal', '>_', () => setTermOpen(v => !v)],
     ['AI assistant', '✦', () => setAiOpen(v => !v)],
     ['Download project ZIP', '⬇', p.download],
@@ -118,27 +141,45 @@ export default function Workspace(p) {
 
   const ctxFile = ctx?.fileId ? files.find(f => f.id === ctx.fileId) : null;
 
+  const online = Math.max(1, p.members.length);
+  const cap = p.meeting?.max_members ?? 10;
+  const people = p.members.length ? p.members : [{ name: p.userName, id: p.userId }];
+  const clock = ts => (ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+  const sendNow = () => { if (chatText.trim()) { p.sendChat(chatText); setChatText(''); } };
+  const editorPane = (file, key) => <CollabEditor key={key} file={file} onContent={p.onContent} onSaved={p.onSaved} onRun={p.run} settings={p.settings} registry={p.registry} />;
+
   return (
-    <div className={'app meeting-app ' + (p.focusMode ? 'focus-mode' : '')} onClick={() => ctx && setCtx(null)}>
-      <header className="bar">
-        <div className="user">
-          <button className="btn" onClick={p.leave} title="Back to dashboard">←</button>
-          <div><b>{p.meeting?.name}</b><div className="live">● LIVE · {Math.max(1, p.members.length)} online</div></div>
+    <div className={'app meeting-app ws ' + (p.focusMode ? 'focus-mode' : '')} onClick={() => ctx && setCtx(null)}>
+      <header className="bar ws-bar">
+        <div className="ws-title">
+          <button className="hdr-btn solo" onClick={p.leave} title="Back to dashboard">←<span className="lbl">Back</span></button>
+          <button className="hdr-btn solo only-sm" onClick={() => setNavOpen(v => !v)} title="Files">☰</button>
+          <div>
+            <b title={p.meeting?.name}>{p.meeting?.name}</b>
+            <div className="live">● LIVE · {online} online · capacity {cap}</div>
+          </div>
         </div>
-        <div className="user">
-          <button className="btn" onClick={() => setPal(true)}>⌘K</button>
-          <button className="btn" onClick={() => setInviteOpen(true)}>Invite</button>
-          <button className="btn" onClick={() => setChatOpen(v => !v)}>Chat</button>
-          <button className="btn" onClick={() => setTermOpen(v => !v)}>Terminal</button>
-          <button className="btn" onClick={() => setAiOpen(v => !v)}>AI</button>
-          <button className="btn" onClick={() => setSettingsOpen(true)}>Settings</button>
-          <button className="btn" onClick={p.openTV}>TV / Room</button>
+        <div className="hdr">
+          <div className="hdr-group">
+            <button className="hdr-btn accent" onClick={() => setInviteOpen(true)} title="Invite collaborators"><span className="ic">＋</span><span className="lbl">Invite</span></button>
+            <button className="hdr-btn" onClick={p.openTV} title="Open the TV / Room screen"><span className="ic">▣</span><span className="lbl">TV / Room</span></button>
+          </div>
+          <div className="hdr-group">
+            <button className="hdr-btn" onClick={() => setTermOpen(v => !v)} title="Shared terminal"><span className="ic">&gt;_</span><span className="lbl">Terminal</span></button>
+            <button className="hdr-btn" onClick={() => setAiOpen(v => !v)} title="AI assistant"><span className="ic">✦</span><span className="lbl">AI</span></button>
+            <button className="hdr-btn" onClick={() => setPal(true)} title="Command palette (Ctrl/Cmd+K)"><span className="ic">⌘</span><span className="lbl">K</span></button>
+          </div>
+          <div className="hdr-group">
+            <button className="hdr-btn" onClick={() => p.setFocusMode(v => !v)} title="Focus mode" aria-pressed={p.focusMode}><span className="ic">◎</span></button>
+            <button className="hdr-btn" onClick={() => setSettingsOpen(true)} title="Editor settings"><span className="ic">⚙</span></button>
+            <button className="hdr-btn only-narrow" onClick={() => setSideOpen(v => !v)} title="Team, video and chat"><span className="ic">💬</span>{unread > 0 && <i className="badge">{unread}</i>}</button>
+          </div>
         </div>
       </header>
 
-      <div className="work">
+      <div className="work ws-work">
         {!p.focusMode && (
-          <aside className="explorer" onContextMenu={e => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}>
+          <aside className={'explorer ' + (navOpen ? 'open' : '')} onContextMenu={e => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}>
             <div className="explorer-head"><b>EXPLORER</b><span>
               <button className="icon" title="Upload files" onClick={() => up.current?.click()}>⇪</button>
               <button className="icon" title="New folder" onClick={() => setFolderModal({ name: '' })}>▱</button>
@@ -175,81 +216,128 @@ export default function Workspace(p) {
           </aside>
         )}
 
-        <section className="editor">
-          <div className="tabs">
-            {tabFiles.length ? tabFiles.map(f => (
-              <span key={f.id} className={'tab ' + (f.id === active?.id ? 'active' : '')} onClick={() => p.openFile(f)}>
-                {f.name}<b className="x" title="Close tab" onClick={e => { e.stopPropagation(); p.closeTab(f.id); }}>×</b>
-              </span>
-            )) : <span className="tab">No file open</span>}
-          </div>
-          <div className="toolbar">
-            <span>LANGUAGE</span><span className="pill">{active ? LANGS[active.language]?.[0] || active.language : 'Plain Text'}</span>
-            <button className="pill fmt" onClick={p.format} disabled={!active}>Format</button>
-            <button className="pill" onClick={() => p.setSplit(v => !v)}>{p.split ? 'Unsplit' : '＋ Panel'}</button>
-            <button className="run" onClick={p.run} disabled={!active} title="Ctrl/Cmd+Enter">▶ Run</button>
-          </div>
-          {p.split ? (
-            <div className="split-editors">
-              <div>{active ? <CollabEditor key={active.id} file={active} onContent={p.onContent} onSaved={p.onSaved} onRun={p.run} settings={p.settings} registry={p.registry} /> : <div className="editor-empty">Create a file to start coding.</div>}</div>
-              <div>
-                <select className="split-select" value={p.secondId || ''} onChange={e => p.setSecondId(e.target.value || null)}>
-                  <option value="">Choose second file…</option>
-                  {files.filter(f => f.id !== active?.id).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-                {second ? <CollabEditor key={second.id} file={second} onContent={p.onContent} onSaved={p.onSaved} onRun={p.run} settings={p.settings} registry={p.registry} /> : <div className="editor-empty">Choose another file for the second panel.</div>}
+        {/* code on top, output underneath — both always visible, no page scrolling */}
+        <div className={'ws-main ' + (dragging ? 'dragging' : '')} ref={mainRef}
+          style={{ gridTemplateRows: p.focusMode ? 'minmax(0,1fr)' : `minmax(0,${ratio}fr) 6px minmax(0,${1 - ratio}fr)` }}>
+          <section className="editor ws-editor">
+            <div className="tabs">
+              {tabFiles.length ? tabFiles.map(f => (
+                <span key={f.id} className={'tab ' + (f.id === active?.id ? 'active' : '')} onClick={() => p.openFile(f)}>
+                  {f.name}<b className="x" title="Close tab" onClick={e => { e.stopPropagation(); p.closeTab(f.id); }}>×</b>
+                </span>
+              )) : <span className="tab">No file open</span>}
+            </div>
+            <div className="toolbar tb">
+              <div className="tb-left">
+                <span className="tb-label">LANGUAGE</span>
+                <span className="pill">{active ? LANGS[active.language]?.[0] || active.language : 'Plain Text'}</span>
+              </div>
+              <div className="tb-actions">
+                <button className="pill" onClick={p.format} disabled={!active} title="Prettify JSON / trim trailing spaces">Format</button>
+                <button className="pill" onClick={() => p.setSplit(v => !v)} title="Edit two files side by side">{p.split ? 'Single panel' : 'Split panel'}</button>
+                <button className="run" onClick={p.run} disabled={!active} title="Run (Ctrl/Cmd+Enter)">▶ Run</button>
               </div>
             </div>
-          ) : active ? <CollabEditor key={active.id} file={active} onContent={p.onContent} onSaved={p.onSaved} onRun={p.run} settings={p.settings} registry={p.registry} /> : <div className="editor-empty">{files.length ? 'Open a file from the explorer.' : 'Create a file to start coding.'}</div>}
-          {p.focusMode && <div className="focus-exit"><button className="btn" onClick={() => p.setFocusMode(false)}>Exit Focus Mode</button></div>}
-        </section>
+            {p.split ? (
+              <div className="split-editors">
+                <div>{active ? editorPane(active, active.id) : <div className="editor-empty">Create a file to start coding.</div>}</div>
+                <div>
+                  <select className="split-select" value={p.secondId || ''} onChange={e => p.setSecondId(e.target.value || null)}>
+                    <option value="">Choose second file…</option>
+                    {files.filter(f => f.id !== active?.id).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  </select>
+                  {second ? editorPane(second, second.id) : <div className="editor-empty">Choose another file for the second panel.</div>}
+                </div>
+              </div>
+            ) : active ? editorPane(active, active.id) : <div className="editor-empty">{files.length ? 'Open a file from the explorer.' : 'Create a file to start coding.'}</div>}
+            {p.focusMode && <div className="focus-exit"><button className="btn" onClick={() => p.setFocusMode(false)}>Exit Focus Mode</button></div>}
+          </section>
+
+          {!p.focusMode && <div className="ws-handle" onPointerDown={startDrag} onDoubleClick={() => setRatio(0.6)} title="Drag to resize · double-click to reset" role="separator" aria-orientation="horizontal" />}
+
+          {!p.focusMode && (
+            <section className="preview ws-output">
+              <div className="preview-head">
+                <span>OUTPUT</span>
+                <span className="devs">
+                  <button className={'icon ' + (p.previewWidth === '100%' ? 'on' : '')} title="Desktop width" onClick={() => p.setPreviewWidth('100%')}>▭</button>
+                  <button className={'icon ' + (p.previewWidth === '768px' ? 'on' : '')} title="Tablet width" onClick={() => p.setPreviewWidth('768px')}>▯</button>
+                  <button className={'icon ' + (p.previewWidth === '390px' ? 'on' : '')} title="Phone width" onClick={() => p.setPreviewWidth('390px')}>▮</button>
+                  <button className="icon" title="Refresh preview" onClick={() => p.setPreviewKey(v => v + 1)}>⟳</button>
+                  <button className="icon" title="Open preview in a new tab" onClick={p.openPreviewTab}>⧉</button>
+                  <button className={'icon ' + (consoleOpen ? 'on' : '')} title="Show / hide console (Ctrl/Cmd+J)" onClick={() => setConsoleOpen(v => !v)}>▤</button>
+                </span>
+              </div>
+              <div className="out-body">
+                <div className="out-frame">
+                  {p.preview
+                    ? <iframe key={p.previewKey} title="preview" srcDoc={p.preview} style={{ width: p.previewWidth }} sandbox="allow-scripts allow-forms allow-modals allow-popups" />
+                    : <div className="preview-empty">Create an HTML file to see live output.<br />Use <b>&lt;link&gt;</b> and <b>&lt;script&gt;</b> to connect local CSS and JS.</div>}
+                </div>
+                {consoleOpen && (
+                  <div className="out-console">
+                    <div className="console-head">CONSOLE <span><button className="icon" onClick={p.stop}>Stop</button><button className="icon" onClick={p.clearLogs}>Clear</button></span></div>
+                    <div className="out-console-body">
+                      {p.logs.length === 0
+                        ? <div className="log info">Press ▶ Run (Ctrl/Cmd+Enter) to run JavaScript or Python. HTML and CSS refresh the preview.</div>
+                        : p.logs.map((l, i) => <div key={i} className={'log ' + (l.type || 'log')}>{l.m}</div>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+        </div>
 
         {!p.focusMode && (
-          <section className="preview">
-            <div className="preview-head"><span>LIVE PREVIEW</span><span className="devs">
-              <button className={'icon ' + (p.previewWidth === '100%' ? 'on' : '')} title="Desktop" onClick={() => p.setPreviewWidth('100%')}>▭</button>
-              <button className={'icon ' + (p.previewWidth === '768px' ? 'on' : '')} title="Tablet" onClick={() => p.setPreviewWidth('768px')}>▯</button>
-              <button className={'icon ' + (p.previewWidth === '390px' ? 'on' : '')} title="Phone" onClick={() => p.setPreviewWidth('390px')}>▮</button>
-              <button className="icon" title="Refresh" onClick={() => p.setPreviewKey(v => v + 1)}>⟳</button>
-              <button className="icon" title="Open in new tab" onClick={p.openPreviewTab}>⧉</button>
-              <button className={'icon ' + (consoleOpen ? 'on' : '')} title="Toggle console (Ctrl/Cmd+J)" onClick={() => setConsoleOpen(v => !v)}>▤</button>
-            </span></div>
-            {p.preview
-              ? <iframe key={p.previewKey} title="preview" srcDoc={p.preview} style={{ width: p.previewWidth, alignSelf: 'center' }} sandbox="allow-scripts allow-forms allow-modals allow-popups" />
-              : <div className="preview-empty">Create an HTML file to see live output.<br />Use <b>&lt;link&gt;</b> and <b>&lt;script&gt;</b> to connect local CSS and JS.</div>}
-            {consoleOpen && (
-              <div className="console">
-                <div className="console-head">OUTPUT <span><button className="icon" onClick={p.stop}>Stop</button><button className="icon" onClick={p.clearLogs}>Clear</button></span></div>
-                {p.logs.length === 0
-                  ? <div className="log info">Press ▶ Run (Ctrl/Cmd+Enter) to run JavaScript or Python. HTML and CSS refresh the preview.</div>
-                  : p.logs.map((l, i) => <div key={i} className={'log ' + (l.type || 'log')}>{l.m}</div>)}
+          <aside className={'team ws-side ' + (sideOpen ? 'open' : '')}>
+            <div className="side-call">
+              <div className="call-grid">
+                {p.callPeers.map(peer => <RemoteTile key={peer.id} peer={peer} />)}
+                <LocalTile stream={p.tileStream} screenSharing={p.screenSharing} />
+              </div>
+              <div className="call-controls">
+                <button className={'call-control ' + (!p.micOn ? 'off' : '')} onClick={p.toggleMic} disabled={!p.hasAudio}>{p.micOn ? '🎙' : '🔇'} Mic</button>
+                <button className={'call-control ' + (!p.cameraOn ? 'off' : '')} onClick={p.toggleCamera} disabled={!p.hasVideo}>{p.cameraOn ? '◉' : '○'} Cam</button>
+                <button className={'call-control ' + (p.screenSharing ? 'on' : '')} onClick={p.toggleScreen}>{p.screenSharing ? 'Stop share' : 'Share'}</button>
+              </div>
+              {!p.localStream && <div className="team-note">Camera and microphone are off or blocked. You can still see and hear others.</div>}
+            </div>
+            <div className="side-tabs">
+              <button className={sideTab === 'chat' ? 'on' : ''} onClick={() => setSideTab('chat')}>Chat{unread > 0 && <i className="badge">{unread}</i>}</button>
+              <button className={sideTab === 'people' ? 'on' : ''} onClick={() => setSideTab('people')}>People · {online}/{cap}</button>
+            </div>
+            {sideTab === 'chat' ? (
+              <div className="side-pane">
+                <div className="side-messages">
+                  {p.chat.length === 0 && <div className="log info">No messages yet. Say hello 👋</div>}
+                  {p.chat.map((m, i) => (
+                    <div key={i} className={'msg ' + (m.from === p.userId ? 'me' : '')}>
+                      <b>{m.from === p.userId ? 'You' : m.name}</b>{m.message}<small>{clock(m.ts)}</small>
+                    </div>
+                  ))}
+                  <div ref={msgEnd} />
+                </div>
+                <div className="chat-send">
+                  <input value={chatText} onChange={e => setChatText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') sendNow(); }} placeholder="Message the team…" maxLength={1000} />
+                  <button className="btn primary" onClick={sendNow}>Send</button>
+                </div>
+              </div>
+            ) : (
+              <div className="side-pane">
+                <div className="member-list">
+                  {people.map((m, i) => {
+                    const f = m.activeFile ? files.find(x => x.id === m.activeFile) : null;
+                    return <div className="member-row" key={m.id || i}><span className="avatar">{(m.name || '?')[0].toUpperCase()}</span><div><b>{m.name || 'Developer'}{m.id === p.userId ? ' (you)' : ''}</b><small>{f ? `Editing ${f.name}` : 'In workspace'}</small></div><span className="presence-dot" /></div>;
+                  })}
+                </div>
+                <div className="team-note">Capacity: {cap} people. Share the invite link to fill the remaining seats.</div>
               </div>
             )}
-          </section>
-        )}
-
-        {!p.focusMode && (
-          <aside className="team">
-            <div className="team-title">TEAM · {Math.max(1, p.members.length)} <button className="icon" onClick={() => setInviteOpen(true)}>＋</button></div>
-            <div className="call-grid">
-              {p.callPeers.map(peer => <RemoteTile key={peer.id} peer={peer} />)}
-              <LocalTile stream={p.tileStream} screenSharing={p.screenSharing} />
-            </div>
-            <div className="call-controls">
-              <button className={'call-control ' + (!p.micOn ? 'off' : '')} onClick={p.toggleMic} disabled={!p.hasAudio}>{p.micOn ? '🎙' : '🔇'} Mic</button>
-              <button className={'call-control ' + (!p.cameraOn ? 'off' : '')} onClick={p.toggleCamera} disabled={!p.hasVideo}>{p.cameraOn ? '◉' : '○'} Cam</button>
-              <button className={'call-control ' + (p.screenSharing ? 'on' : '')} onClick={p.toggleScreen}>{p.screenSharing ? 'Stop share' : 'Share screen'}</button>
-            </div>
-            {!p.localStream && <div className="team-note">Camera and microphone are off or blocked. You can still see and hear others, and collaborate.</div>}
-            <div className="member-list">
-              {(p.members.length ? p.members : [{ name: p.userName, id: p.userId }]).map((m, i) => {
-                const f = m.activeFile ? files.find(x => x.id === m.activeFile) : null;
-                return <div className="member-row" key={m.id || i}><span className="avatar">{(m.name || '?')[0].toUpperCase()}</span><div><b>{m.name || 'Developer'}{m.id === p.userId ? ' (you)' : ''}</b><small>{f ? `Editing ${f.name}` : 'In workspace'}</small></div><span className="presence-dot" /></div>;
-              })}
-            </div>
           </aside>
         )}
       </div>
+      {(sideOpen || navOpen) && <div className="scrim" onClick={() => { setSideOpen(false); setNavOpen(false); }} />}
 
       {ctx && (
         <div className="context" style={{ left: Math.min(ctx.x, window.innerWidth - 190), top: Math.min(ctx.y, window.innerHeight - 260) }} onClick={e => e.stopPropagation()}>
@@ -269,13 +357,6 @@ export default function Workspace(p) {
               <button className="danger" onClick={() => { p.deleteFile(ctxFile); setCtx(null); }}>Delete</button>
             </>}
           </>}
-        </div>
-      )}
-
-      {chatOpen && (
-        <div className="chat"><div className="chat-head">Team Chat <button className="icon" onClick={() => setChatOpen(false)}>×</button></div>
-          <div className="messages">{p.chat.length === 0 ? <div className="log info">No messages yet. Say hello.</div> : p.chat.map((m, i) => <div key={i}><b>{m.name}</b>{m.message}</div>)}<div ref={msgEnd} /></div>
-          <div className="chat-send"><input value={chatText} onChange={e => setChatText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && chatText.trim()) { p.sendChat(chatText); setChatText(''); } }} placeholder="Message the team…" autoFocus /><button className="btn primary" onClick={() => { if (chatText.trim()) { p.sendChat(chatText); setChatText(''); } }}>Send</button></div>
         </div>
       )}
 
