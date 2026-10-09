@@ -18,7 +18,7 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 // Turns raw Postgres/PostgREST errors into something actionable.
 function explain(error) {
   const msg = error?.message || String(error || 'Something went wrong.');
-  if (/recursion|schema cache|does not exist|permission denied|row-level security|could not find the function/i.test(msg)) {
+  if (/recursion|schema cache|does not exist|permission denied|row-level security|could not find the function|max_members/i.test(msg)) {
     return `${msg} — Run supabase/setup.sql once in the Supabase SQL editor (see README).`;
   }
   return msg;
@@ -46,6 +46,7 @@ function App() {
   const [meetings, setMeetings] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [meetingName, setMeetingName] = useState('');
+  const [maxMembers, setMaxMembers] = useState(10);
 
   const [meeting, setMeeting] = useState(null);
   const [files, setFiles] = useState([]);
@@ -170,7 +171,12 @@ function App() {
   /* ------------------------------------------------------------ meetings */
   async function loadMeetings() {
     const { data, error } = await supabase.from('meetings').select('*').order('created_at', { ascending: false });
-    if (error) toast(explain(error)); else setMeetings(data || []);
+    if (error) return toast(explain(error));
+    // seats taken per meeting (members can see the member rows of their own meetings)
+    const { data: rows } = await supabase.from('meeting_members').select('meeting_id');
+    const counts = {};
+    (rows || []).forEach(r => { counts[r.meeting_id] = (counts[r.meeting_id] || 0) + 1; });
+    setMeetings((data || []).map(m => ({ ...m, member_count: counts[m.id] || 1 })));
   }
 
   async function createMeeting() {
@@ -180,17 +186,17 @@ function App() {
     setBusy(true);
     try {
       let id;
-      const rpc = await supabase.rpc('create_meeting', { p_name: name });
+      const rpc = await supabase.rpc('create_meeting', { p_name: name, p_max: maxMembers });
       if (!rpc.error && rpc.data) id = rpc.data;
       else {
         // Fallback if the RPC is unavailable: two plain inserts, still guarded by RLS.
         id = crypto.randomUUID();
-        const ins = await supabase.from('meetings').insert({ id, name, owner_id: userId, invite_token: crypto.randomUUID() });
+        const ins = await supabase.from('meetings').insert({ id, name, owner_id: userId, invite_token: crypto.randomUUID(), max_members: maxMembers });
         if (ins.error) throw new Error(`${explain(rpc.error || ins.error)}`);
         const mem = await supabase.from('meeting_members').insert({ meeting_id: id, user_id: userId, role: 'owner' });
         if (mem.error) { await supabase.from('meetings').delete().eq('id', id); throw mem.error; }
       }
-      setCreateOpen(false); setMeetingName('');
+      setCreateOpen(false); setMeetingName(''); setMaxMembers(10);
       await loadMeetings();
       toast('Meeting created');
       await openMeeting(id, false);
@@ -209,6 +215,20 @@ function App() {
     if (!data?.length) return toast('Only the meeting owner can rename it.');
     await loadMeetings();
     toast('Meeting renamed');
+  }
+
+  async function changeCapacity(m) {
+    if (m.owner_id !== userId) return toast('Only the meeting owner can change the capacity.');
+    const input = window.prompt(`Maximum participants (2–50). ${m.member_count} currently in the meeting.`, String(m.max_members ?? 10));
+    if (input === null) return;
+    const n = Math.round(Number(input));
+    if (!Number.isFinite(n) || n < 2 || n > 50) return toast('Enter a number between 2 and 50.');
+    if (n < m.member_count) return toast(`Capacity can't be lower than the ${m.member_count} people already in this meeting.`);
+    const { data, error } = await supabase.from('meetings').update({ max_members: n }).eq('id', m.id).select('id');
+    if (error) return toast(explain(error));
+    if (!data?.length) return toast('Only the meeting owner can change the capacity.');
+    await loadMeetings();
+    toast(`Capacity set to ${n}`);
   }
 
   async function deleteMeeting(m) {
@@ -637,7 +657,7 @@ function App() {
   const runShell = cmd => runOnServer('shell', cmd);
 
   function sendChat(text) {
-    const payload = { name: userName, message: text.trim() };
+    const payload = { name: userName, message: text.trim(), from: userId, ts: Date.now() };
     setChat(old => [...old, payload]);
     void channelRef.current?.send({ type: 'broadcast', event: 'chat', payload });
   }
@@ -653,8 +673,8 @@ function App() {
   if (screen === 'dashboard' || !meeting) {
     return (
       <>
-        <Dashboard profile={profile} userId={userId} meetings={meetings} onCreate={createMeeting} onOpen={id => openMeeting(id, false)} onRename={renameMeeting} onDelete={deleteMeeting} onLogout={logout}
-          createOpen={createOpen} setCreateOpen={setCreateOpen} meetingName={meetingName} setMeetingName={setMeetingName} busy={busy} />
+        <Dashboard profile={profile} userId={userId} meetings={meetings} onCreate={createMeeting} onOpen={id => openMeeting(id, false)} onRename={renameMeeting} onDelete={deleteMeeting} onCapacity={changeCapacity} onLogout={logout}
+          createOpen={createOpen} setCreateOpen={setCreateOpen} meetingName={meetingName} setMeetingName={setMeetingName} maxMembers={maxMembers} setMaxMembers={setMaxMembers} busy={busy} />
         {busy && <div className="busy-overlay"><div className="spinner" /></div>}
       </>
     );
