@@ -1,5 +1,5 @@
 -- =====================================================================
--- DevSync — complete, idempotent database setup (v0.4)
+-- DevSync — complete, idempotent database setup (v0.5: adds meeting capacity)
 -- Run this ONCE in Supabase → SQL Editor. It is safe to re-run, and it
 -- also repairs databases created with the older schema / repair scripts.
 --
@@ -46,6 +46,14 @@ create table if not exists public.meetings(
   invite_token uuid not null unique default gen_random_uuid(),
   created_at timestamptz not null default now()
 );
+
+-- Maximum number of people (owner included) who may be in a meeting.
+alter table public.meetings add column if not exists max_members int not null default 10;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'meetings_max_members_range') then
+    alter table public.meetings add constraint meetings_max_members_range check (max_members between 2 and 50);
+  end if;
+end $$;
 
 create table if not exists public.meeting_members(
   meeting_id uuid not null references public.meetings(id) on delete cascade,
@@ -166,30 +174,52 @@ create policy "files delete" on public.files for delete to authenticated
 
 -- ---------- RPCs ------------------------------------------------------
 drop function if exists public.create_meeting(text);
-create function public.create_meeting(p_name text) returns uuid
+drop function if exists public.create_meeting(text, int);
+create function public.create_meeting(p_name text, p_max int default 10) returns uuid
 language plpgsql security definer set search_path = '' as $$
 declare mid uuid; uid uuid := (select auth.uid());
 begin
   if uid is null then raise exception 'Not authenticated'; end if;
+  if p_max is null or p_max < 2 or p_max > 50 then raise exception 'Capacity must be between 2 and 50'; end if;
   insert into public.profiles(id, name) values (uid, 'Developer') on conflict (id) do nothing;
-  insert into public.meetings(name, owner_id)
-    values (coalesce(nullif(trim(p_name), ''), 'Untitled Meeting'), uid) returning id into mid;
+  insert into public.meetings(name, owner_id, max_members)
+    values (coalesce(nullif(trim(p_name), ''), 'Untitled Meeting'), uid, p_max) returning id into mid;
   insert into public.meeting_members(meeting_id, user_id, role) values (mid, uid, 'owner');
   return mid;
 end; $$;
-revoke all on function public.create_meeting(text) from public;
-grant execute on function public.create_meeting(text) to authenticated;
+revoke all on function public.create_meeting(text, int) from public;
+grant execute on function public.create_meeting(text, int) to authenticated;
+
+-- Capacity can't be lowered below the number of people already in the meeting.
+create or replace function public.check_meeting_capacity() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.max_members < (select count(*) from public.meeting_members where meeting_id = new.id) then
+    raise exception 'Capacity cannot be lower than the current number of members';
+  end if;
+  return new;
+end; $$;
+drop trigger if exists meetings_capacity on public.meetings;
+create trigger meetings_capacity before update of max_members on public.meetings
+  for each row execute function public.check_meeting_capacity();
 
 drop function if exists public.join_meeting_by_invite(uuid);
 create function public.join_meeting_by_invite(p_token uuid) returns uuid
 language plpgsql security definer set search_path = '' as $$
-declare mid uuid; uid uuid := (select auth.uid());
+declare mid uuid; cap int; taken int; uid uuid := (select auth.uid());
 begin
   if uid is null then raise exception 'Not authenticated'; end if;
-  select id into mid from public.meetings where invite_token = p_token;
+  -- lock the meeting row so two people can't take the last seat at the same time
+  select id, max_members into mid, cap from public.meetings where invite_token = p_token for update;
   if mid is null then raise exception 'Invalid invite'; end if;
-  insert into public.meeting_members(meeting_id, user_id, role) values (mid, uid, 'member')
-    on conflict (meeting_id, user_id) do nothing;
+  if not exists (select 1 from public.meeting_members where meeting_id = mid and user_id = uid) then
+    select count(*) into taken from public.meeting_members where meeting_id = mid;
+    if taken >= cap then
+      raise exception 'This meeting is full (% of % seats taken)', taken, cap;
+    end if;
+    insert into public.meeting_members(meeting_id, user_id, role) values (mid, uid, 'member')
+      on conflict (meeting_id, user_id) do nothing;
+  end if;
   return mid;
 end; $$;
 revoke all on function public.join_meeting_by_invite(uuid) from public;
