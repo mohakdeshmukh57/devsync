@@ -14,7 +14,7 @@ export const EXT_LANG = {
   vue: 'plaintext', log: 'plaintext', gitignore: 'plaintext',
 };
 
-export const DEFAULT_SETTINGS = { fs: 13, tab: 2, pair: true };
+export const DEFAULT_SETTINGS = { fs: 14, tab: 2, pair: true, hl: true, layout: 'auto' };
 export const PAIRS = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'", '`': '`' };
 
 export const extOf = name => {
