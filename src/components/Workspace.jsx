@@ -21,13 +21,15 @@ export default function Workspace(p) {
   const [pq, setPq] = useState('');
   const [palIdx, setPalIdx] = useState(0);
   const [fq, setFq] = useState('');
-  const [consoleOpen, setConsoleOpen] = useState(true);
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [sideTab, setSideTab] = useState('chat');
-  const [sideOpen, setSideOpen] = useState(false);   // slide-over on narrow screens
-  const [navOpen, setNavOpen] = useState(false);
-  const [ratio, setRatio] = useState(0.6);           // share of the height used by the code editor
+  const [vw, setVw] = useState(() => window.innerWidth);
+  const [sideOpen, setSideOpen] = useState(() => window.innerWidth > 1180); // inline on wide screens, slide-over on narrow ones
+  const [navOpen, setNavOpen] = useState(() => window.innerWidth > 760);
+  const [mainW, setMainW] = useState(1200);
+  const [ratios, setRatios] = useState({ side: 0.5, stack: 0.58 }); // share of the space used by the code editor
   const [dragging, setDragging] = useState(false);
   const [unread, setUnread] = useState(0);
   const [aiOpen, setAiOpen] = useState(false);
@@ -64,17 +66,43 @@ export default function Workspace(p) {
     if (sideTab === 'chat') { seen.current = p.chat.length; setUnread(0); } else setUnread(Math.max(0, p.chat.length - seen.current));
   }, [p.chat.length, sideTab]);
 
+  useEffect(() => {
+    const h = () => setVw(window.innerWidth);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(([e]) => setMainW(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [p.focusMode]);
+  useEffect(() => {
+    const last = p.logs[p.logs.length - 1];
+    if (last && (last.type === 'error' || last.type === 'warn')) setConsoleOpen(true);
+  }, [p.logs.length]);
+
+  const pref = p.settings.layout || 'auto';
+  const mode = pref === 'auto' ? (mainW >= 1000 ? 'side' : 'stack') : pref;
+  const ratio = ratios[mode];
+  const narrowSide = vw <= 1180;
+  const narrowNav = vw <= 760;
+
   const startDrag = e => {
     e.preventDefault();
     setDragging(true);
     const move = ev => {
       const r = mainRef.current?.getBoundingClientRect();
-      if (r) setRatio(Math.min(0.8, Math.max(0.2, (ev.clientY - r.top) / r.height)));
+      if (!r) return;
+      const v = mode === 'side' ? (ev.clientX - r.left) / r.width : (ev.clientY - r.top) / r.height;
+      setRatios(old => ({ ...old, [mode]: Math.min(0.8, Math.max(0.2, v)) }));
     };
     const up = () => { setDragging(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
+  const resetRatio = () => setRatios(old => ({ ...old, [mode]: mode === 'side' ? 0.5 : 0.58 }));
   const showChat = () => { setSideTab('chat'); setSideOpen(true); };
 
   const filter = fq.trim().toLowerCase();
@@ -89,6 +117,8 @@ export default function Workspace(p) {
     ['Run active file', '▶', p.run],
     ['Format active file', '≡', p.format],
     ['Toggle split editor', '▦', () => p.setSplit(v => !v)],
+    ['Layout: code left, output right', '▥', () => p.setSettings({ ...p.settings, layout: 'side' })],
+    ['Layout: code on top, output below', '▤', () => p.setSettings({ ...p.settings, layout: 'stack' })],
     ['Toggle focus mode', '◎', () => p.setFocusMode(v => !v)],
     ['Toggle output console', '▤', () => setConsoleOpen(v => !v)],
     ['Invite collaborators', '↗', () => setInviteOpen(true)],
@@ -153,7 +183,7 @@ export default function Workspace(p) {
       <header className="bar ws-bar">
         <div className="ws-title">
           <button className="hdr-btn solo" onClick={p.leave} title="Back to dashboard">←<span className="lbl">Back</span></button>
-          <button className="hdr-btn solo only-sm" onClick={() => setNavOpen(v => !v)} title="Files">☰</button>
+          <button className={'hdr-btn solo ' + (navOpen ? 'on' : '')} onClick={() => setNavOpen(v => !v)} title="Show / hide files">☰</button>
           <div>
             <b title={p.meeting?.name}>{p.meeting?.name}</b>
             <div className="live">● LIVE · {online} online · capacity {cap}</div>
@@ -170,16 +200,16 @@ export default function Workspace(p) {
             <button className="hdr-btn" onClick={() => setPal(true)} title="Command palette (Ctrl/Cmd+K)"><span className="ic">⌘</span><span className="lbl">K</span></button>
           </div>
           <div className="hdr-group">
-            <button className="hdr-btn" onClick={() => p.setFocusMode(v => !v)} title="Focus mode" aria-pressed={p.focusMode}><span className="ic">◎</span></button>
+            <button className={'hdr-btn ' + (sideOpen ? 'on' : '')} onClick={() => setSideOpen(v => !v)} title="Show / hide team, video and chat"><span className="ic">💬</span><span className="lbl">Team</span>{unread > 0 && <i className="badge">{unread}</i>}</button>
+            <button className={'hdr-btn ' + (p.focusMode ? 'on' : '')} onClick={() => p.setFocusMode(v => !v)} title="Focus mode (code only)" aria-pressed={p.focusMode}><span className="ic">⛶</span></button>
             <button className="hdr-btn" onClick={() => setSettingsOpen(true)} title="Editor settings"><span className="ic">⚙</span></button>
-            <button className="hdr-btn only-narrow" onClick={() => setSideOpen(v => !v)} title="Team, video and chat"><span className="ic">💬</span>{unread > 0 && <i className="badge">{unread}</i>}</button>
           </div>
         </div>
       </header>
 
-      <div className="work ws-work">
+      <div className={'work ws-work ' + (navOpen ? 'nav-open' : 'nav-closed') + ' ' + (sideOpen ? 'side-open' : 'side-closed')}>
         {!p.focusMode && (
-          <aside className={'explorer ' + (navOpen ? 'open' : '')} onContextMenu={e => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}>
+          <aside className="explorer" onContextMenu={e => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}>
             <div className="explorer-head"><b>EXPLORER</b><span>
               <button className="icon" title="Upload files" onClick={() => up.current?.click()}>⇪</button>
               <button className="icon" title="New folder" onClick={() => setFolderModal({ name: '' })}>▱</button>
@@ -217,8 +247,10 @@ export default function Workspace(p) {
         )}
 
         {/* code on top, output underneath — both always visible, no page scrolling */}
-        <div className={'ws-main ' + (dragging ? 'dragging' : '')} ref={mainRef}
-          style={{ gridTemplateRows: p.focusMode ? 'minmax(0,1fr)' : `minmax(0,${ratio}fr) 6px minmax(0,${1 - ratio}fr)` }}>
+        <div className={'ws-main ' + mode + ' ' + (dragging ? 'dragging' : '')} ref={mainRef}
+          style={p.focusMode ? { gridTemplateRows: 'minmax(0,1fr)', gridTemplateColumns: 'minmax(0,1fr)' }
+            : mode === 'side' ? { gridTemplateColumns: `minmax(0,${ratio}fr) 6px minmax(0,${1 - ratio}fr)`, gridTemplateRows: 'minmax(0,1fr)' }
+              : { gridTemplateRows: `minmax(0,${ratio}fr) 6px minmax(0,${1 - ratio}fr)`, gridTemplateColumns: 'minmax(0,1fr)' }}>
           <section className="editor ws-editor">
             <div className="tabs">
               {tabFiles.length ? tabFiles.map(f => (
@@ -253,44 +285,53 @@ export default function Workspace(p) {
             {p.focusMode && <div className="focus-exit"><button className="btn" onClick={() => p.setFocusMode(false)}>Exit Focus Mode</button></div>}
           </section>
 
-          {!p.focusMode && <div className="ws-handle" onPointerDown={startDrag} onDoubleClick={() => setRatio(0.6)} title="Drag to resize · double-click to reset" role="separator" aria-orientation="horizontal" />}
+          {!p.focusMode && <div className="ws-handle" onPointerDown={startDrag} onDoubleClick={resetRatio} title="Drag to resize · double-click to reset" role="separator" aria-orientation={mode === 'side' ? 'vertical' : 'horizontal'} />}
 
           {!p.focusMode && (
             <section className="preview ws-output">
               <div className="preview-head">
-                <span>OUTPUT</span>
+                <span className="out-title">OUTPUT{p.previewPage && <button className="page-chip" onClick={() => p.setPreviewPage(null)} title="Back to the default page">{p.previewPage} ✕</button>}</span>
                 <span className="devs">
-                  <button className={'icon ' + (p.previewWidth === '100%' ? 'on' : '')} title="Desktop width" onClick={() => p.setPreviewWidth('100%')}>▭</button>
-                  <button className={'icon ' + (p.previewWidth === '768px' ? 'on' : '')} title="Tablet width" onClick={() => p.setPreviewWidth('768px')}>▯</button>
-                  <button className={'icon ' + (p.previewWidth === '390px' ? 'on' : '')} title="Phone width" onClick={() => p.setPreviewWidth('390px')}>▮</button>
+                  <span className="seg" title="Preview width">
+                    <button className={p.previewWidth === '100%' ? 'on' : ''} onClick={() => p.setPreviewWidth('100%')}>Desktop</button>
+                    <button className={p.previewWidth === '768px' ? 'on' : ''} onClick={() => p.setPreviewWidth('768px')}>Tablet</button>
+                    <button className={p.previewWidth === '390px' ? 'on' : ''} onClick={() => p.setPreviewWidth('390px')}>Phone</button>
+                  </span>
+                  <span className="seg" title="Arrange code and output">
+                    <button className={mode === 'side' ? 'on' : ''} onClick={() => p.setSettings({ ...p.settings, layout: 'side' })} title="Code on the left, output on the right">▥</button>
+                    <button className={mode === 'stack' ? 'on' : ''} onClick={() => p.setSettings({ ...p.settings, layout: 'stack' })} title="Code on top, output underneath">▤</button>
+                  </span>
                   <button className="icon" title="Refresh preview" onClick={() => p.setPreviewKey(v => v + 1)}>⟳</button>
                   <button className="icon" title="Open preview in a new tab" onClick={p.openPreviewTab}>⧉</button>
-                  <button className={'icon ' + (consoleOpen ? 'on' : '')} title="Show / hide console (Ctrl/Cmd+J)" onClick={() => setConsoleOpen(v => !v)}>▤</button>
                 </span>
               </div>
               <div className="out-body">
                 <div className="out-frame">
                   {p.preview
-                    ? <iframe key={p.previewKey} title="preview" srcDoc={p.preview} style={{ width: p.previewWidth }} sandbox="allow-scripts allow-forms allow-modals allow-popups" />
+                    ? <iframe key={p.previewKey} title="preview" srcDoc={p.preview} style={{ width: p.previewWidth }} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox" />
                     : <div className="preview-empty">Create an HTML file to see live output.<br />Use <b>&lt;link&gt;</b> and <b>&lt;script&gt;</b> to connect local CSS and JS.</div>}
                 </div>
-                {consoleOpen && (
-                  <div className="out-console">
-                    <div className="console-head">CONSOLE <span><button className="icon" onClick={p.stop}>Stop</button><button className="icon" onClick={p.clearLogs}>Clear</button></span></div>
+                <div className={'out-console ' + (consoleOpen ? 'open' : '')}>
+                  <button className="console-bar" onClick={() => setConsoleOpen(v => !v)} title="Show / hide console (Ctrl/Cmd+J)">
+                    <span>{consoleOpen ? '▾' : '▸'} CONSOLE</span>
+                    {p.logs.length > 0 && <i className={'badge ' + (p.logs.some(l => l.type === 'error') ? '' : 'soft')}>{p.logs.length}</i>}
+                    {consoleOpen && <span className="console-actions" onClick={e => e.stopPropagation()}><span role="button" onClick={p.stop}>Stop</span><span role="button" onClick={p.clearLogs}>Clear</span></span>}
+                  </button>
+                  {consoleOpen && (
                     <div className="out-console-body">
                       {p.logs.length === 0
                         ? <div className="log info">Press ▶ Run (Ctrl/Cmd+Enter) to run JavaScript or Python. HTML and CSS refresh the preview.</div>
                         : p.logs.map((l, i) => <div key={i} className={'log ' + (l.type || 'log')}>{l.m}</div>)}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </section>
           )}
         </div>
 
         {!p.focusMode && (
-          <aside className={'team ws-side ' + (sideOpen ? 'open' : '')}>
+          <aside className="team ws-side">
             <div className="side-call">
               <div className="call-grid">
                 {p.callPeers.map(peer => <RemoteTile key={peer.id} peer={peer} />)}
@@ -337,7 +378,7 @@ export default function Workspace(p) {
           </aside>
         )}
       </div>
-      {(sideOpen || navOpen) && <div className="scrim" onClick={() => { setSideOpen(false); setNavOpen(false); }} />}
+      {((sideOpen && narrowSide) || (navOpen && narrowNav)) && <div className="scrim" onClick={() => { if (narrowSide) setSideOpen(false); if (narrowNav) setNavOpen(false); }} />}
 
       {ctx && (
         <div className="context" style={{ left: Math.min(ctx.x, window.innerWidth - 190), top: Math.min(ctx.y, window.innerHeight - 260) }} onClick={e => e.stopPropagation()}>
@@ -405,9 +446,11 @@ export default function Workspace(p) {
       )}
       {settingsOpen && (
         <Modal title="Editor settings" close={() => setSettingsOpen(false)}>
-          <label>Font size ({p.settings.fs}px)<input type="range" min="11" max="22" value={p.settings.fs} onChange={e => p.setSettings({ ...p.settings, fs: +e.target.value })} /></label>
+          <label>Font size ({p.settings.fs}px)<input type="range" min="11" max="24" value={p.settings.fs} onChange={e => p.setSettings({ ...p.settings, fs: +e.target.value })} /></label>
           <label>Tab size<select value={p.settings.tab} onChange={e => p.setSettings({ ...p.settings, tab: +e.target.value })}><option value="2">2 spaces</option><option value="4">4 spaces</option></select></label>
           <label className="check"><input type="checkbox" checked={p.settings.pair} onChange={e => p.setSettings({ ...p.settings, pair: e.target.checked })} /> Auto-close brackets and quotes</label>
+          <label className="check"><input type="checkbox" checked={p.settings.hl !== false} onChange={e => p.setSettings({ ...p.settings, hl: e.target.checked })} /> Syntax colours</label>
+          <label>Code and output layout<select value={p.settings.layout || 'auto'} onChange={e => p.setSettings({ ...p.settings, layout: e.target.value })}><option value="auto">Automatic (side by side on wide windows)</option><option value="side">Side by side — code left, output right</option><option value="stack">Stacked — code on top, output below</option></select></label>
           <div className="modal-actions"><button className="btn" onClick={() => setSettingsOpen(false)}>Done</button></div>
         </Modal>
       )}
@@ -433,7 +476,7 @@ export function TVScreen({ meeting, preview, onRefresh }) {
   return (
     <div className="tv">
       <div className="tv-bar"><div className="brand"><span className="logo">&lt;/&gt;</span>{meeting?.name || 'DevSync Room'}</div><div className="tv-status"><span className="live">● LIVE OUTPUT</span><button className="btn" onClick={onRefresh}>Refresh</button></div></div>
-      {preview ? <iframe title="DevSync TV output" srcDoc={preview} sandbox="allow-scripts allow-forms allow-modals" /> : <div className="preview-empty">Waiting for an HTML file in this meeting…</div>}
+      {preview ? <iframe title="DevSync TV output" srcDoc={preview} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox" /> : <div className="preview-empty">Waiting for an HTML file in this meeting…</div>}
     </div>
   );
 }
