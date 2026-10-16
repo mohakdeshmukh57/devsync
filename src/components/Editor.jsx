@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { openCollaborativeFile } from '../lib/collab';
 import { supabase, toast } from '../lib/supabase';
 import { PAIRS, LANGS } from '../lib/constants';
+import { highlight } from '../lib/highlight';
 
 const CLOSERS = new Set([')', ']', '}']);
 const isWord = c => /[\w$]/.test(c || '');
@@ -19,13 +20,20 @@ function diffRange(a, b) {
 export function Editor({ file, value, onChange, readOnly, onSave, onRun, settings }) {
   const ta = useRef(null);
   const gutter = useRef(null);
+  const hl = useRef(null);
   const sel = useRef([0, 0]);
   const local = useRef(false);
   const lastValue = useRef(value);
   const [pos, setPos] = useState({ ln: 1, col: 1, sel: 0 });
   const { fs, tab, pair } = settings;
   const lines = value.split('\n').length;
-  const style = { font: `${fs}px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace` };
+  const showHl = settings.hl !== false;
+  const html = React.useMemo(() => (showHl ? highlight(file?.language, value) : ''), [showHl, file?.language, value]);
+  const wrapStyle = { '--fs': `${fs}px`, '--tab': tab };
+  const syncScroll = t => {
+    if (gutter.current) gutter.current.scrollTop = t.scrollTop;
+    if (hl.current) hl.current.style.transform = `translate(${-t.scrollLeft}px, ${-t.scrollTop}px)`;
+  };
 
   const report = t => {
     sel.current = [t.selectionStart, t.selectionEnd];
@@ -49,6 +57,8 @@ export function Editor({ file, value, onChange, readOnly, onSave, onRun, setting
       report(t);
     }
   }, [value]);
+
+  useLayoutEffect(() => { if (ta.current) syncScroll(ta.current); });
 
   // Replace [a,b) with `text` through the browser's edit stack so Ctrl+Z keeps working.
   function edit(t, a, b, text, caretA, caretB = caretA) {
@@ -141,26 +151,28 @@ export function Editor({ file, value, onChange, readOnly, onSave, onRun, setting
 
   return (
     <>
-      <div className="code-wrap">
-        <div className="gutter" style={style} ref={gutter}>{Array.from({ length: lines }, (_, i) => <div key={i}>{i + 1}</div>)}</div>
-        <textarea
-          ref={ta}
-          className="code"
-          style={style}
-          value={value}
-          readOnly={readOnly}
-          onChange={e => { local.current = true; onChange(e.target.value); report(e.target); }}
-          onKeyDown={onKeyDown}
-          onKeyUp={e => report(e.target)}
-          onClick={e => report(e.target)}
-          onSelect={e => report(e.target)}
-          onScroll={e => { if (gutter.current) gutter.current.scrollTop = e.target.scrollTop; }}
-          spellCheck="false"
-          autoCapitalize="off"
-          autoCorrect="off"
-          wrap="off"
-          aria-label={`${file?.name || 'code'} editor`}
-        />
+      <div className="code-wrap" style={wrapStyle}>
+        <div className="gutter" ref={gutter}><div>{Array.from({ length: lines }, (_, i) => <div key={i} className={'ln ' + (i + 1 === pos.ln ? 'cur' : '')}>{i + 1}</div>)}</div></div>
+        <div className="code-area">
+          {showHl && <pre className="hl" aria-hidden="true"><code ref={hl} dangerouslySetInnerHTML={{ __html: html + '\n' }} /></pre>}
+          <textarea
+            ref={ta}
+            className={'code ' + (showHl ? 'has-hl' : '')}
+            value={value}
+            readOnly={readOnly}
+            onChange={e => { local.current = true; onChange(e.target.value); report(e.target); }}
+            onKeyDown={onKeyDown}
+            onKeyUp={e => report(e.target)}
+            onClick={e => report(e.target)}
+            onSelect={e => report(e.target)}
+            onScroll={e => syncScroll(e.target)}
+            spellCheck="false"
+            autoCapitalize="off"
+            autoCorrect="off"
+            wrap="off"
+            aria-label={`${file?.name || 'code'} editor`}
+          />
+        </div>
       </div>
       <div className="statusbar">
         <span>Ln {pos.ln}, Col {pos.col}{pos.sel ? ` (${pos.sel} selected)` : ''}</span>
