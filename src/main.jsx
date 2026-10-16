@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import { supabase, toast } from './lib/supabase';
 import { CallRoom } from './lib/webrtc';
 import { LANGS, EXT_LANG, DEFAULT_SETTINGS, extOf, langFromName, isTextName } from './lib/constants';
-import { buildPreview, pickPreviewFile, runJavaScript, runPython, stopRun, formatSource, SERVER_LANGS, runOnServer } from './lib/runner';
+import { buildPreview, resolvePage, pickPreviewFile, runJavaScript, runPython, stopRun, formatSource, SERVER_LANGS, runOnServer } from './lib/runner';
 import { Toasts, Loading, Setup } from './components/common';
 import Landing from './components/Landing';
 import Dashboard from './components/Dashboard';
@@ -60,6 +60,7 @@ function App() {
   const [preview, setPreview] = useState('');
   const [previewKey, setPreviewKey] = useState(0);
   const [previewWidth, setPreviewWidth] = useState('100%');
+  const [previewPage, setPreviewPage] = useState(null); // HTML file reached by clicking a link inside the preview
   const [logs, setLogs] = useState([]);
   const [chat, setChat] = useState([]);
   const [members, setMembers] = useState([]);
@@ -243,7 +244,7 @@ function App() {
 
   function resetMeetingState() {
     setMeeting(null); setFiles([]); setFolders([]); setAssets([]); setActiveId(null); setSecondId(null); setTabs([]);
-    setSplit(false); setPreview(''); setLogs([]); setChat([]); setMembers([]); setFocusMode(false);
+    setSplit(false); setPreview(''); setPreviewPage(null); setLogs([]); setChat([]); setMembers([]); setFocusMode(false);
   }
 
   async function openMeeting(id, isTV = false) {
@@ -259,6 +260,8 @@ function App() {
       if (m.error) throw m.error;
       if (!m.data) throw new Error('Meeting not found, or you are not a member. Ask the owner for an invite link.');
       setMeeting(m.data); setFiles(f.data || []); setFolders(fo.data || []);
+      const first = (f.data || []).find(x => x.name.toLowerCase() === 'index.html') || (f.data || []).find(x => x.language === 'html') || (f.data || [])[0];
+      if (first && !isTV) { setActiveId(first.id); setTabs([first.id]); }
       setScreen(isTV ? 'tv' : 'meeting');
       history.replaceState(null, '', `/${isTV ? 'tv' : 'meeting'}/${id}`);
       await subscribeMeeting(id, isTV);
@@ -573,14 +576,22 @@ function App() {
   /* -------------------------------------------------------------- preview */
   useEffect(() => {
     if (screen !== 'meeting' && screen !== 'tv') return undefined;
-    const t = setTimeout(() => setPreview(buildPreview(files, screen === 'tv' ? null : activeFile)), 250);
+    const t = setTimeout(() => setPreview(buildPreview(files, screen === 'tv' ? null : activeFile, previewPage)), 250);
     return () => clearTimeout(t);
-  }, [files, activeId, screen]);
+  }, [files, activeId, screen, previewPage]);
+
+  useEffect(() => { setPreviewPage(null); }, [activeId]);
 
   useEffect(() => {
     const h = e => {
       const d = e.data;
       if (d?.ds === 'preview' && ['log', 'info', 'warn', 'error'].includes(d.t)) setLogs(l => [...l.slice(-499), { type: d.t, m: d.m }]);
+      // a link inside the preview pointed at another page of the project: show that file instead of leaving the app
+      if (d?.ds === 'nav') {
+        const page = resolvePage(filesRef.current, d.href);
+        if (page) setPreviewPage(page.name);
+        else setLogs(l => [...l.slice(-499), { type: 'warn', m: `Link "${d.href}" has no matching HTML file. Create ${String(d.href).replace(/^[./]+/, '').split(/[?#]/)[0] || 'index'}${/\.html?$/i.test(String(d.href).split(/[?#]/)[0]) ? '' : '.html'} to preview that page.` }]);
+      }
     };
     window.addEventListener('message', h);
     return () => window.removeEventListener('message', h);
@@ -687,7 +698,7 @@ function App() {
         tabs={tabs} closeTab={closeTab} openFile={openFile} onContent={onContent} onSaved={onSaved} registry={registry}
         settings={settings} setSettings={setSettings} split={split} setSplit={setSplit} focusMode={focusMode} setFocusMode={setFocusMode}
         run={run} stop={() => { stopRun('Stopped.'); }} format={format} logs={logs} clearLogs={() => setLogs([])}
-        preview={preview} previewKey={previewKey} setPreviewKey={setPreviewKey} previewWidth={previewWidth} setPreviewWidth={setPreviewWidth} openPreviewTab={openPreviewTab}
+        preview={preview} previewPage={previewPage} setPreviewPage={setPreviewPage} previewKey={previewKey} setPreviewKey={setPreviewKey} previewWidth={previewWidth} setPreviewWidth={setPreviewWidth} openPreviewTab={openPreviewTab}
         members={members} userId={userId} userName={userName}
         callPeers={callPeers} localStream={localStream} tileStream={shareStream || localStream} screenSharing={Boolean(shareStream)}
         micOn={micOn} cameraOn={cameraOn} hasAudio={Boolean(localStream?.getAudioTracks().length)} hasVideo={Boolean(localStream?.getVideoTracks().length)}
