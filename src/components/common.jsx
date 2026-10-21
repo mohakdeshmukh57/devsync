@@ -10,7 +10,7 @@ export function Modal({ title, close, children, onSubmit }) {
   return (
     <div className="modal" onMouseDown={e => { if (e.currentTarget === e.target) close(); }}>
       <Wrap className="modal-card" onSubmit={onSubmit ? e => { e.preventDefault(); onSubmit(); } : undefined}>
-        <button type="button" className="close" onClick={close} aria-label="Close">×</button>
+        <button type="button" className="close" onClick={close} aria-label="Close">&times;</button>
         <h2>{title}</h2>
         {children}
       </Wrap>
@@ -30,7 +30,17 @@ export function Toasts() {
 }
 
 export function Brand() {
-  return <div className="brand"><span className="logo">&lt;/&gt;</span>DevSync</div>;
+  return (
+    <div className="brand">
+      <span className="logo">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="16 18 22 12 16 6" />
+          <polyline points="8 6 2 12 8 18" />
+        </svg>
+      </span>
+      DevSync
+    </div>
+  );
 }
 
 export function Loading({ text = 'Loading…' }) {

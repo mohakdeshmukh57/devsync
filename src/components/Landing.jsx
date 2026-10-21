@@ -5,10 +5,10 @@ import { FEATURES } from '../lib/constants';
 function HeroWorkspace() {
   return (
     <div className="hero-mock">
-      <div className="mock-top"><b>DevSync</b><span>Project workspace</span><span className="live">● Live</span></div>
+      <div className="mock-top"><b>DevSync</b><span>Project workspace</span><span className="live">Live</span></div>
       <div className="mock-body">
-        <aside><b>Files</b><div>⌄ src</div><div className="indent">⌄ components</div><div className="indent">CodeEditor.tsx</div><div className="indent">Preview.tsx</div><div>package.json</div></aside>
-        <div className="mock-code"><div className="mock-tabs">Home.tsx ×&nbsp;&nbsp; CodeEditor.tsx &nbsp;&nbsp; + New</div><pre>{`const Home = () => {
+        <aside><b>Files</b><div>src</div><div className="indent">components</div><div className="indent">CodeEditor.tsx</div><div className="indent">Preview.tsx</div><div>package.json</div></aside>
+        <div className="mock-code"><div className="mock-tabs">Home.tsx &times;&nbsp;&nbsp; CodeEditor.tsx &nbsp;&nbsp; + New</div><pre>{`const Home = () => {
   const [output, setOutput] = useState('');
 
   async function run() {
@@ -36,14 +36,14 @@ export default function Landing({ mode, setMode, authOpen, setAuthOpen, submit, 
       <nav className="nav">
         <Brand />
         <div className="navlinks"><a href="#features">Features</a><a href="#features">Workspace</a><a href="#features">Docs</a><a href="#features">About</a></div>
-        <div className="navactions"><button className="btn" onClick={() => open('login')}>Log In</button><button className="btn primary" onClick={() => open('register')}>Get Started Free</button></div>
+        <div className="navactions"><button className="btn" onClick={() => open('login')}>Log In</button><button className="btn primary" onClick={() => open('register')}>Get Started</button></div>
       </nav>
       <section className="hero">
         <div>
-          <div className="eyebrow">● Build together. In real time.</div>
-          <h1>The collaborative workspace for <span className="gradient">people who build.</span></h1>
-          <p>Code together, talk together, preview together and keep the whole project in one place. DevSync is designed for startup teams, students and developers working from anywhere — or from the same room.</p>
-          <div className="heroBtns"><button className="btn primary" onClick={() => open('register')}>Start Building Free →</button><button className="btn" onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}>Explore workspace</button></div>
+          <div className="eyebrow">Build together, in real time</div>
+          <h1>The collaborative workspace for <span className="gradient">developers.</span></h1>
+          <p>Code together, talk together, preview together. DevSync is the all-in-one workspace for teams who ship fast — from anywhere.</p>
+          <div className="heroBtns"><button className="btn primary" onClick={() => open('register')}>Start Building &rarr;</button><button className="btn" onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}>Explore features</button></div>
         </div>
         <HeroWorkspace />
       </section>
@@ -51,6 +51,15 @@ export default function Landing({ mode, setMode, authOpen, setAuthOpen, submit, 
         <h2>Everything you need to <span className="gradient">build together</span></h2>
         <div className="feature-grid">{FEATURES.map(([t, d, ic]) => <div className="feature-card" key={t}><div className="feature-icon">{ic}</div><h3>{t}</h3><p>{d}</p></div>)}</div>
       </section>
+      <footer className="site-footer">
+        <Brand />
+        <div className="footer-links">
+          <a href="#features">Features</a>
+          <a href="#features">Documentation</a>
+          <a href="#features">GitHub</a>
+        </div>
+        <p className="footer-copy">&copy; {new Date().getFullYear()} DevSync. Built for developers.</p>
+      </footer>
       {authOpen && (
         <div className="modal auth-modal" onMouseDown={e => { if (e.target === e.currentTarget) setAuthOpen(false); }}>
           <form className="auth-card" onSubmit={submit}>

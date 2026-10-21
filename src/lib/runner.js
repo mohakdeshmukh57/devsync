@@ -6,26 +6,13 @@ const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const escapeHtml = v => String(v).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
 
 // Forwards console output and runtime errors from the preview iframe to the output console.
-const BRIDGE = `<script>(function(){var s=function(t,a){try{parent.postMessage({ds:'preview',t:t,m:a.map(function(v){try{return typeof v==='object'?JSON.stringify(v):String(v)}catch(e){return String(v)}}).join(' ')},'*')}catch(e){}};['log','info','warn','error'].forEach(function(k){var o=console[k];console[k]=function(){s(k,[].slice.call(arguments));try{o.apply(console,arguments)}catch(e){}}});addEventListener('error',function(e){s('error',[e.message+(e.lineno?' (line '+e.lineno+')':'')])});addEventListener('unhandledrejection',function(e){s('error',['Unhandled promise rejection: '+((e.reason&&e.reason.message)||e.reason)])});document.addEventListener('click',function(e){if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;var h=a.getAttribute('href')||'';if(/^(mailto:|tel:|javascript:|data:|blob:)/i.test(h))return;e.preventDefault();if(h.charAt(0)==='#'){var id='';try{id=decodeURIComponent(h.slice(1))}catch(x){id=h.slice(1)}var el=id?(document.getElementById(id)||document.getElementsByName(id)[0]):null;if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'});else if(!id)scrollTo({top:0,behavior:'smooth'});else s('warn',['No element with id "'+id+'" for link '+h]);return}if(/^(https?:)?\\/\\//i.test(h)){window.open(h,'_blank','noopener');return}parent.postMessage({ds:'nav',href:h},'*')},false);document.addEventListener('submit',function(e){if(!e.defaultPrevented){e.preventDefault();s('info',['Form submit blocked in the preview. Handle it with JavaScript (event.preventDefault()).'])}},false)})()<\/script>`;
+const BRIDGE = `<script>(function(){var s=function(t,a){try{parent.postMessage({ds:'preview',t:t,m:a.map(function(v){try{return typeof v==='object'?JSON.stringify(v):String(v)}catch(e){return String(v)}}).join(' ')},'*')}catch(e){}};['log','info','warn','error'].forEach(function(k){var o=console[k];console[k]=function(){s(k,[].slice.call(arguments));try{o.apply(console,arguments)}catch(e){}}});addEventListener('error',function(e){s('error',[e.message+(e.lineno?' (line '+e.lineno+')':'')])});addEventListener('unhandledrejection',function(e){s('error',['Unhandled promise rejection: '+((e.reason&&e.reason.message)||e.reason)])})})()<\/script>`;
 
 const refRe = name => new RegExp(`(?:href|src)=["'](?:\\.{0,2}\\/)*(?:[\\w.-]+\\/)*${escapeRe(name)}["']`, 'i');
 
-/** Maps a link like "services", "./services.html" or "/about/index.html#top" to an HTML file of the project. */
-export function resolvePage(files, href) {
-  const clean = String(href || '').split('#')[0].split('?')[0].replace(/^(?:\.{0,2}\/)+/, '').trim();
-  const htmls = files.filter(f => f.language === 'html');
-  if (!clean || clean.endsWith('/')) return htmls.find(f => f.name.toLowerCase() === 'index.html') || null;
-  const base = clean.split('/').pop().toLowerCase();
-  return htmls.find(f => [base, `${base}.html`, `${base}.htm`].includes(f.name.toLowerCase())) || null;
-}
-
-function pickHtml(files, activeFile, pageName) {
+function pickHtml(files, activeFile) {
   const htmls = files.filter(f => f.language === 'html');
   if (!htmls.length) return null;
-  if (pageName) {
-    const page = htmls.find(f => f.name === pageName);
-    if (page) return page;
-  }
   if (activeFile?.language === 'html') return htmls.find(f => f.id === activeFile.id);
   if (activeFile) {
     const linked = htmls.find(h => refRe(activeFile.name).test(h.content || ''));
@@ -34,11 +21,11 @@ function pickHtml(files, activeFile, pageName) {
   return htmls.find(f => f.name.toLowerCase() === 'index.html') || htmls[0];
 }
 
-export function pickPreviewFile(files, activeFile) { return pickHtml(files, activeFile, null); }
+export function pickPreviewFile(files, activeFile) { return pickHtml(files, activeFile); }
 
 /** Builds one self-contained HTML document: the HTML file with local CSS/JS files inlined. */
-export function buildPreview(files, activeFile, pageName = null) {
-  const html = pickHtml(files, activeFile, pageName);
+export function buildPreview(files, activeFile) {
+  const html = pickHtml(files, activeFile);
   if (!html) return '';
   let doc = html.content || '';
 
@@ -178,7 +165,11 @@ export function formatSource(language, text, tab = 2) {
   return text.replace(/[ \t]+$/gm, '').replace(/\s*$/, '\n');
 }
 
-export const SERVER_LANGS = new Set(['typescript', 'java', 'c', 'cpp', 'csharp', 'go', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'dart', 'sql', 'shell']);
+export const SERVER_LANGS = new Set([
+  'typescript', 'java', 'c', 'cpp', 'csharp', 'go', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'dart', 'sql', 'shell',
+  'scala', 'perl', 'lua', 'r', 'julia', 'elixir', 'haskell', 'clojure', 'erlang', 'groovy',
+  'assembly', 'cobol', 'fortran', 'pascal', 'vb', 'objc',
+]);
 
 export async function runOnServer(language, code) {
   let res;
