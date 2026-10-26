@@ -43,8 +43,30 @@ export function Brand() {
   );
 }
 
+const QUOTES = [
+  ['Talk is cheap. Show me the code.', 'Linus Torvalds'],
+  ['Make it work, make it right, make it fast.', 'Kent Beck'],
+  ['Alone we can do so little; together we can do so much.', 'Helen Keller'],
+  ['First, solve the problem. Then, write the code.', 'John Johnson'],
+  ['Simplicity is prerequisite for reliability.', 'Edsger W. Dijkstra'],
+  ['Programs must be written for people to read.', 'Harold Abelson'],
+  ['The best way to predict the future is to invent it.', 'Alan Kay'],
+  ['Talent wins games, but teamwork wins championships.', 'Michael Jordan'],
+];
+
 export function Loading({ text = 'Loading…' }) {
-  return <div className="boot"><Brand /><div className="spinner" /><p>{text}</p></div>;
+  const [q] = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+  return (
+    <div className="boot boot-scene">
+      <span className="boot-ring r1" /><span className="boot-ring r2" />
+      <div className="boot-card">
+        <span className="boot-logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg></span>
+        <h2>{text.replace(/…$/, '')}<span className="dots"><i /><i /><i /></span></h2>
+        <div className="boot-bar"><i /></div>
+        <blockquote><p>&ldquo;{q[0]}&rdquo;</p><cite>{q[1]}</cite></blockquote>
+      </div>
+    </div>
+  );
 }
 
 export function Setup() {

@@ -17,7 +17,13 @@ function LocalTile({ stream, screenSharing }) {
   return <div className="call-tile local"><video ref={ref} muted autoPlay playsInline /><div className="call-label">You{screenSharing ? ' (sharing)' : ''}</div></div>;
 }
 
+const LAYOUTS = [['left', 'Code left · Output right'], ['right', 'Output left · Code right'], ['top', 'Code top · Output bottom'], ['bottom', 'Output top · Code bottom']];
+
 export default function Workspace(p) {
+  const [layout, setLayout] = useState(() => { try { return localStorage.getItem('ds-layout') || 'top'; } catch { return 'top'; } });
+  const [layoutOpen, setLayoutOpen] = useState(false);
+  const [relayout, setRelayout] = useState(0);
+  const chooseLayout = id => { setLayout(id); setLayoutOpen(false); setRelayout(n => n + 1); try { localStorage.setItem('ds-layout', id); } catch { /* storage unavailable */ } };
   const [pal, setPal] = useState(false);
   const [pq, setPq] = useState('');
   const [palIdx, setPalIdx] = useState(0);
@@ -88,7 +94,9 @@ export default function Workspace(p) {
     setDragging(true);
     const move = ev => {
       const r = mainRef.current?.getBoundingClientRect();
-      if (r) setRatio(Math.min(0.8, Math.max(0.2, (ev.clientY - r.top) / r.height)));
+      if (!r) return;
+      const raw = layout === 'top' || layout === 'bottom' ? (ev.clientY - r.top) / r.height : (ev.clientX - r.left) / r.width;
+      setRatio(Math.min(0.8, Math.max(0.2, layout === 'bottom' || layout === 'right' ? 1 - raw : raw)));
     };
     const up = () => { setDragging(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move);
@@ -176,10 +184,17 @@ export default function Workspace(p) {
   const editorPane = (file, key) => <CollabEditor key={key} file={file} onContent={p.onContent} onSaved={onSavedWithHistory} onRun={p.run} settings={p.settings} registry={p.registry} />;
 
   const showCode = viewMode === 'code' || viewMode === 'split';
+  const stacked = layout === 'top' || layout === 'bottom';
+  const swapped = layout === 'bottom' || layout === 'right';
+  const first = swapped ? 1 - ratio : ratio;
+  const tracks = `minmax(0,${first}fr) 6px minmax(0,${1 - first}fr)`;
+  const one = 'minmax(0,1fr)';
+  const gridStyle = p.focusMode || viewMode !== 'split' ? { gridTemplateRows: one, gridTemplateColumns: one }
+    : stacked ? { gridTemplateRows: tracks, gridTemplateColumns: one } : { gridTemplateColumns: tracks, gridTemplateRows: one };
   const showOutput = viewMode === 'output' || viewMode === 'split';
 
   return (
-    <div className={'app meeting-app ws ' + (p.focusMode ? 'focus-mode' : '')} onClick={() => ctx && setCtx(null)}>
+    <div className={'app meeting-app ws ' + (p.focusMode ? 'focus-mode' : '')} onClick={() => { if (ctx) setCtx(null); if (layoutOpen) setLayoutOpen(false); }}>
       <header className="bar ws-bar">
         <div className="ws-title">
           <button className="hdr-btn solo" onClick={p.leave} title="Back to dashboard">
@@ -189,18 +204,11 @@ export default function Workspace(p) {
           <button className="hdr-btn solo only-sm" onClick={() => setNavOpen(v => !v)} title="Files">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 3h12M2 8h12M2 13h12"/></svg>
           </button>
-          <div>
-            <b title={p.meeting?.name}>{p.meeting?.name}</b>
-            <div className="live">{online} online &middot; {cap} max</div>
+          <span className="ws-sep" />
+          <div className="ws-name" style={{ '--h': [...(p.meeting?.name || 'x')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7) }}>
+            <span className="ws-glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
+            <div><b title={p.meeting?.name}>{p.meeting?.name}</b><span className="ws-status"><i />{online} online &middot; {cap} max</span></div>
           </div>
-        </div>
-
-        {/* Presence avatars */}
-        <div className="presence-row">
-          {people.slice(0, 5).map((m, i) => (
-            <span key={m.id || i} className="avatar small" title={m.name || 'Developer'}>{(m.name || '?')[0].toUpperCase()}</span>
-          ))}
-          {people.length > 5 && <span className="presence-more">+{people.length - 5}</span>}
         </div>
 
         {/* Command palette search trigger */}
@@ -234,6 +242,22 @@ export default function Workspace(p) {
             </button>
           </div>
           <div className="hdr-group">
+            <div className="layout-wrap">
+              <button className={'hdr-btn' + (layoutOpen ? ' on' : '')} onClick={e => { e.stopPropagation(); setLayoutOpen(v => !v); }} title="Change editor / output layout">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M8 2v12"/></svg>
+                <span className="lbl">Layout</span>
+              </button>
+              {layoutOpen && (
+                <div className="layout-pop" onClick={e => e.stopPropagation()}>
+                  <div className="lp-title">Arrange workspace</div>
+                  {LAYOUTS.map(([id, label]) => (
+                    <button key={id} className={layout === id ? 'on' : ''} onClick={() => chooseLayout(id)}>
+                      <span className={'lo lo-' + id}><i /><i /></span><span>{label}</span>{layout === id && <b>✓</b>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button className="hdr-btn" onClick={() => p.setFocusMode(v => !v)} title="Focus mode" aria-pressed={p.focusMode}>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="10" height="10" rx="1"/><path d="M1 5V2a1 1 0 011-1h3M11 1h3a1 1 0 011 1v3M15 11v3a1 1 0 01-1 1h-3M5 15H2a1 1 0 01-1-1v-3"/></svg>
             </button>
@@ -297,8 +321,7 @@ export default function Workspace(p) {
           </aside>
         )}
 
-        <div className={'ws-main ' + (dragging ? 'dragging' : '')} ref={mainRef}
-          style={{ gridTemplateRows: p.focusMode ? 'minmax(0,1fr)' : viewMode === 'code' ? 'minmax(0,1fr)' : viewMode === 'output' ? '0 0 minmax(0,1fr)' : `minmax(0,${ratio}fr) 6px minmax(0,${1 - ratio}fr)` }}>
+        <div className={'ws-main lay-' + layout + ' rl' + (relayout % 2) + (dragging ? ' dragging' : '')} ref={mainRef} style={gridStyle}>
 
           {showCode && (
           <section className="editor ws-editor">
@@ -348,7 +371,7 @@ export default function Workspace(p) {
           </section>
           )}
 
-          {!p.focusMode && showCode && showOutput && <div className="ws-handle" onPointerDown={startDrag} onDoubleClick={() => setRatio(0.6)} title="Drag to resize" role="separator" aria-orientation="horizontal" />}
+          {!p.focusMode && showCode && showOutput && <div className="ws-handle" onPointerDown={startDrag} onDoubleClick={() => setRatio(0.6)} title="Drag to resize" role="separator" aria-orientation={stacked ? 'horizontal' : 'vertical'} />}
 
           {!p.focusMode && showOutput && (
             <section className="preview ws-output">
