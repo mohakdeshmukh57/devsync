@@ -117,7 +117,7 @@ export default function Landing({ mode, setMode, authOpen, setAuthOpen, submit, 
         <p className="sub">One workspace for your whole team — editor, output, preview, video calls and chat. No installs, no setup, just a link.</p>
         <div className="cta"><button className="btn primary lg" onClick={() => open('register')}>Start building free →</button><button className="btn lg" onClick={() => document.getElementById('features')?.scrollIntoView()}>See how it works</button></div>
         <div className="lp-stage">
-          <div className="float" style={{ left: '-1%', top: '18%' }}>🟢 <b>Sarah</b> joined the meeting</div>
+          <div className="float" style={{ left: '1%', top: '-26px' }}>🟢 <b>Sarah</b> joined the meeting</div>
           <div className="float" style={{ right: '0', top: '55%', animationDelay: '-2s' }}>▶ Output ready · <span style={{ color: '#34d399' }}>0.04s</span></div>
           <Editor full />
         </div>

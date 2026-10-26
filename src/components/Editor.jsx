@@ -2,9 +2,28 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { openCollaborativeFile } from '../lib/collab';
 import { supabase, toast } from '../lib/supabase';
 import { PAIRS, LANGS } from '../lib/constants';
+import { highlight } from '../lib/highlight';
 
 const CLOSERS = new Set([')', ']', '}']);
 const isWord = c => /[\w$]/.test(c || '');
+const VOID = new Set('area base br col embed hr img input link meta param source track wbr !doctype'.split(' '));
+const TAG_FILE = /\.(html?|xml|svg|vue|jsx|tsx|php)$/i;
+
+// Name of the nearest unclosed HTML tag before `pos` (used for `</` completion).
+function openTagBefore(text, pos) {
+  const re = /<(\/?)([A-Za-z][\w:-]*)(?:"[^"]*"|'[^']*'|[^>"'])*?(\/?)>/g;
+  const stack = [];
+  const src = text.slice(0, pos);
+  let m;
+  while ((m = re.exec(src))) {
+    const name = m[2].toLowerCase();
+    if (m[1]) { const i = stack.lastIndexOf(name); if (i >= 0) stack.length = i; } else if (!m[3] && !VOID.has(name)) stack.push(name);
+  }
+  const last = stack[stack.length - 1];
+  if (!last) return '';
+  const orig = [...src.matchAll(/<([A-Za-z][\w:-]*)/g)].reverse().find(x => x[1].toLowerCase() === last);
+  return orig ? orig[1] : last;
+}
 
 function diffRange(a, b) {
   const max = Math.min(a.length, b.length);
@@ -26,6 +45,8 @@ export function Editor({ file, value, onChange, readOnly, onSave, onRun, setting
   const { fs, tab, pair } = settings;
   const lines = value.split('\n').length;
   const style = { fontSize: `${fs}px` };
+  const tagMode = ['html', 'plaintext', 'javascript', 'typescript', 'php'].includes(file?.language) && TAG_FILE.test(file?.name || '');
+  const pre = useRef(null);
 
   const report = t => {
     sel.current = [t.selectionStart, t.selectionEnd];
@@ -100,7 +121,11 @@ export function Editor({ file, value, onChange, readOnly, onSave, onRun, setting
       const next = v[b];
       const opener = '{[('.includes(prev || '#') || (prev === ':' && ['python', 'yaml'].includes(file?.language));
       const pad = ' '.repeat(tab);
-      if (prev && PAIRS[prev] && next === PAIRS[prev] && '{[('.includes(prev)) {
+      const betweenTags = tagMode && prev === '>' && v.slice(b, b + 2) === '</';
+      if (betweenTags) {
+        const text = '\n' + indent + pad + '\n' + indent;
+        edit(t, a, b, text, a + 1 + indent.length + tab);
+      } else if (prev && PAIRS[prev] && next === PAIRS[prev] && '{[('.includes(prev)) {
         const text = '\n' + indent + pad + '\n' + indent;
         edit(t, a, b, text, a + 1 + indent.length + tab);
       } else {
@@ -108,6 +133,21 @@ export function Editor({ file, value, onChange, readOnly, onSave, onRun, setting
         edit(t, a, b, text, a + text.length);
       }
       return;
+    }
+
+    if (tagMode && a === b && e.key === '>') {
+      const lt = v.lastIndexOf('<', a - 1);
+      const head = lt >= 0 ? v.slice(lt, a) : '';
+      const m = /^<([A-Za-z][\w:-]*)(?:"[^"]*"|'[^']*'|[^<>"'])*$/.exec(head);
+      if (m && !head.endsWith('/') && !VOID.has(m[1].toLowerCase()) && v.slice(a, a + m[1].length + 3) !== `</${m[1]}>`) {
+        e.preventDefault();
+        edit(t, a, b, `></${m[1]}>`, a + 1);
+        return;
+      }
+    }
+    if (tagMode && a === b && e.key === '/' && v[a - 1] === '<') {
+      const name = openTagBefore(v, a - 1);
+      if (name) { e.preventDefault(); edit(t, a, b, `/${name}>`, a + name.length + 2); return; }
     }
 
     if (!pair) return;
@@ -142,7 +182,9 @@ export function Editor({ file, value, onChange, readOnly, onSave, onRun, setting
   return (
     <>
       <div className="code-wrap">
-        <div className="gutter" style={style} ref={gutter}>{Array.from({ length: lines }, (_, i) => <div key={i}>{i + 1}</div>)}</div>
+        <div className="gutter" style={style} ref={gutter}>{Array.from({ length: lines }, (_, i) => <div key={i} className={i + 1 === pos.ln ? 'cur-ln' : ''}>{i + 1}</div>)}</div>
+        <div className="code-stack">
+        <pre className="hl" style={style} ref={pre} aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlight(file?.language, value) + '\n' }} />
         <textarea
           ref={ta}
           className="code"
@@ -154,13 +196,14 @@ export function Editor({ file, value, onChange, readOnly, onSave, onRun, setting
           onKeyUp={e => report(e.target)}
           onClick={e => report(e.target)}
           onSelect={e => report(e.target)}
-          onScroll={e => { if (gutter.current) gutter.current.scrollTop = e.target.scrollTop; }}
+          onScroll={e => { if (gutter.current) gutter.current.scrollTop = e.target.scrollTop; if (pre.current) { pre.current.scrollTop = e.target.scrollTop; pre.current.scrollLeft = e.target.scrollLeft; } }}
           spellCheck="false"
           autoCapitalize="off"
           autoCorrect="off"
           wrap="off"
           aria-label={`${file?.name || 'code'} editor`}
         />
+        </div>
       </div>
       <div className="statusbar">
         <span>Ln {pos.ln}, Col {pos.col}{pos.sel ? ` (${pos.sel} selected)` : ''}</span>

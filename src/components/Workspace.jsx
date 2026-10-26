@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { CollabEditor } from './Editor';
+import Terminal from './Terminal';
 import { Modal } from './common';
 import { LANGS, langFromName } from '../lib/constants';
 import { toast } from '../lib/supabase';
@@ -471,10 +472,9 @@ export default function Workspace(p) {
       )}
 
       {termOpen && (
-        <div className="chat terminal-drawer"><div className="chat-head">Terminal <button className="icon" onClick={() => setTermOpen(false)}>&times;</button></div>
-          <div className="terminal-output">{termLines.map((l, i) => <div className={'term-line ' + l.type} key={i}>{l.text}</div>)}</div>
-          <div className="chat-send"><input value={termInput} onChange={e => setTermInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') runTerminal(); }} placeholder="run a sandboxed command…" autoFocus /><button className="btn primary" onClick={runTerminal}>Run</button></div>
-        </div>
+        <Terminal files={p.files} folders={p.folders} userName={p.userName} projectName={p.meeting?.name}
+          actions={{ createFile: p.createFile, createFolder: p.createFolder, deleteFile: f => p.deleteFile(f), renameFile: p.renameFile, openFile: p.openFile }}
+          runShell={p.runShell} close={() => setTermOpen(false)} />
       )}
 
       {aiOpen && (

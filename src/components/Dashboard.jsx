@@ -7,6 +7,11 @@ export default function Dashboard({ profile, userId, meetings, onCreate, onOpen,
   const [viewMode, setViewMode] = useState('grid');
   const list = meetings.filter(m => m.name.toLowerCase().includes(q.trim().toLowerCase()));
   const first = profile?.name?.split(' ')[0] || 'developer';
+  const hue = n => [...n].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+  const owned = meetings.filter(m => m.owner_id === userId).length;
+  const people = meetings.reduce((n, m) => n + (m.member_count ?? 1), 0);
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   const copyInvite = async m => {
     const link = `${location.origin}/meeting/${m.id}?invite=${m.invite_token}`;
@@ -22,8 +27,11 @@ export default function Dashboard({ profile, userId, meetings, onCreate, onOpen,
       </header>
       <main className="dash">
         <div className="dash-head">
-          <div><div className="eyebrow">Your workspace</div><h1>Welcome back, {first}</h1><p>{meetings.length} workspace{meetings.length === 1 ? '' : 's'}</p></div>
+          <div><div className="eyebrow">Your workspace</div><h1>{greet}, {first}</h1><p>Pick up where you left off, or start something new.</p></div>
           <button className="btn primary" onClick={() => setCreateOpen(true)}>+ Create Meeting</button>
+        </div>
+        <div className="dash-stats">
+          {[['Workspaces', meetings.length], ['Owned by you', owned], ['People across rooms', people]].map(([l, v]) => <div key={l}><b>{v}</b><span>{l}</span></div>)}
         </div>
         {meetings.length > 0 && (
           <div className="dash-controls">
@@ -45,7 +53,8 @@ export default function Dashboard({ profile, userId, meetings, onCreate, onOpen,
         ) : viewMode === 'grid' ? (
           <div className="meetings">
             {list.map(m => (
-              <div className="meeting-card" key={m.id}>
+              <div className="meeting-card" key={m.id} style={{ '--h': hue(m.name) }}>
+                <div className="mc-cover" aria-hidden="true"><i /><i /><i /><i /><span>{'</>'}</span></div>
                 <div className="card-top"><span className="live">{m.owner_id === userId ? 'OWNER' : 'MEMBER'}</span><span>{new Date(m.created_at).toLocaleDateString()}</span></div>
                 <h3>{m.name}</h3>
                 <p>Private collaborative workspace</p>
