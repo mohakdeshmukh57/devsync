@@ -7,8 +7,8 @@ const KW_PY = 'def|class|return|if|elif|else|for|while|in|not|and|or|is|import|f
 const BUILTIN_PY = 'print|len|range|int|str|float|list|dict|set|tuple|bool|input|open|enumerate|zip|map|filter|sum|min|max|abs|sorted|reversed|isinstance|type|super|self';
 const KW_GENERIC = 'if|else|for|while|do|switch|case|break|continue|return|class|struct|enum|public|private|protected|static|void|int|long|float|double|char|bool|boolean|string|new|try|catch|finally|throw|import|using|package|namespace|func|fn|let|mut|const|var|def|end|then|select|from|where|insert|update|delete|create|table|into|values|join|group|order|by|limit';
 
-function build(rules) {
-  const re = new RegExp(rules.map(r => `(${r[0]})`).join('|'), 'g');
+function build(rules, flags = 'gm') {
+  const re = new RegExp(rules.map(r => `(${r[0]})`).join('|'), flags);
   return code => {
     let out = '';
     let last = 0;
@@ -121,7 +121,57 @@ function html(code) {
   return out + esc(code.slice(last));
 }
 
-const TABLE = { javascript: js, typescript: js, python: py, css, json, html, yaml, shell: generic, sql: generic, java: generic, c: generic, cpp: generic, csharp: generic, go: generic, rust: generic, php: generic, ruby: generic, swift: generic, kotlin: generic, dart: generic };
+
+// Per-language rule sets built from keyword lists (comments, strings, numbers, keywords, types, functions).
+const lang = (kw, { hash = false, types = '', ci = false, lits = 'true|false|null|nil|None|undefined' } = {}) => build([
+  [hash ? '#[^\\n]*' : '\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?(?:\\*\\/|$)|--[^\\n]*', 'c'],
+  [STR + '|`(?:\\\\[\\s\\S]|[^`\\\\])*`?', 's'],
+  ['\\b(?:0x[\\da-fA-F]+|\\d+\\.?\\d*(?:e[+-]?\\d+)?)\\b', 'n'],
+  [`\\b(?:${kw})\\b`.replace('\\b(?:', ci ? '\\b(?:' : '\\b(?:'), 'k'],
+  [`\\b(?:${lits})\\b`, 'l'],
+  types ? [`\\b(?:${types})\\b`, 'ty'] : ['(?!)', 'ty'],
+  ['\\b[A-Z][A-Za-z0-9_]*\\b', 'ty'],
+  ['\\b[A-Za-z_]\\w*(?=\\s*\\()', 'f'],
+]);
+const C_TYPES = 'int|long|short|float|double|char|bool|boolean|void|string|String|size_t|byte|auto|unsigned|signed|i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|usize|str|Int|Double|Float|Bool|List|Map|Vec|Option|Result';
+const KW_C = 'if|else|for|while|do|switch|case|break|continue|return|class|struct|enum|union|typedef|public|private|protected|static|final|abstract|interface|extends|implements|new|try|catch|finally|throw|throws|import|package|using|namespace|template|const|virtual|override|inline|extern|this|sizeof|include|define|goto|default|volatile|synchronized|instanceof|var|let|mut|fn|func|impl|trait|pub|use|mod|match|loop|where|move|ref|as|in|go|chan|defer|select|range|type|map|fun|val|object|when|is|guard|init|protocol|extension|async|await|yield|get|set|lateinit|open';
+const sql = build([
+  ['--[^\\n]*|\\/\\*[\\s\\S]*?(?:\\*\\/|$)', 'c'],
+  ["'(?:''|[^'])*'?", 's'],
+  ['\\b\\d+\\.?\\d*\\b', 'n'],
+  ['\\b(?:(?:SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|ON|AS|AND|OR|NOT|NULL|IS|IN|LIKE|BETWEEN|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|DISTINCT|UNION|ALL|CASE|WHEN|THEN|ELSE|END|PRIMARY|KEY|FOREIGN|REFERENCES|DEFAULT|UNIQUE|CHECK|EXISTS|ASC|DESC|BEGIN|COMMIT|ROLLBACK|WITH)\\b)', 'k'],
+  ['\\b(?:INT|INTEGER|TEXT|VARCHAR|CHAR|BOOLEAN|DATE|TIMESTAMP|FLOAT|DOUBLE|DECIMAL|SERIAL|UUID|JSON)\\b', 'ty'],
+  ['\\b[A-Za-z_]\\w*(?=\\s*\\()', 'f'],
+], 'gmi');
+const shell = build([
+  ['#[^\\n]*', 'c'],
+  [STR, 's'],
+  ['\\$\\{?[\\w@#?*]+\\}?', 'a'],
+  ['(?<=\\s|^)--?[A-Za-z][\\w-]*', 'p'],
+  ['\\b(?:if|then|else|elif|fi|for|while|do|done|case|esac|function|in|return|exit|export|local|source|echo|cd|ls|cat|grep|sed|awk|sudo|git|npm|node|python|pip|mkdir|rm|cp|mv|chmod|curl|wget)\\b', 'k'],
+  ['\\b\\d+\\b', 'n'],
+]);
+const md = build([
+  ['^#{1,6}[^\\n]*', 'k'],
+  ['```[\\s\\S]*?(?:```|$)|`[^`\\n]+`', 's'],
+  ['\\*\\*[^*\\n]+\\*\\*|__[^_\\n]+__', 'f'],
+  ['\\[[^\\]\\n]*\\]\\([^)\\n]*\\)', 'a'],
+  ['^\\s*(?:[-*+]|\\d+\\.)\\s', 'n'],
+  ['^>[^\\n]*', 'c'],
+]);
+const ruby = lang('def|end|class|module|if|elsif|else|unless|while|until|for|in|do|begin|rescue|ensure|raise|return|yield|self|super|require|include|attr_accessor|puts|then|case|when|lambda|proc', { hash: true, lits: 'true|false|nil' });
+const lua = lang('function|end|if|then|else|elseif|for|while|do|repeat|until|return|local|break|in|and|or|not', { lits: 'true|false|nil' });
+const perl = lang('my|our|sub|if|elsif|else|unless|while|for|foreach|return|use|package|print|die|last|next', { hash: true });
+const cStyle = lang(KW_C, { types: C_TYPES });
+const php = lang(KW_C + '|function|echo|foreach|elseif|endif|endforeach|isset|empty|array|require|include|namespace|use|global', { types: C_TYPES });
+const lisp = build([[';[^\\n]*', 'c'], [STR, 's'], ['\\b\\d+\\.?\\d*\\b', 'n'], ['\\((?:def\\w*|let|fn|if|cond|do|loop|ns)\\b', 'k']]);
+
+const TABLE = {
+  javascript: js, typescript: js, python: py, css, json, html, yaml, markdown: md, shell, sql,
+  java: cStyle, c: cStyle, cpp: cStyle, csharp: cStyle, go: cStyle, rust: cStyle, swift: cStyle, kotlin: cStyle, dart: cStyle, scala: cStyle, zig: cStyle, groovy: cStyle, objc: cStyle,
+  php, ruby, lua, perl, r: py, julia: py, nim: py, elixir: ruby, clojure: lisp, haskell: lang('module|import|where|let|in|if|then|else|case|of|do|data|type|class|instance|deriving|newtype', { lits: 'True|False|Nothing' }),
+  erlang: lisp, ocaml: lang('let|in|if|then|else|match|with|fun|function|type|module|open|rec|begin|end|of|and|or', {}), fsharp: lang('let|in|if|then|else|match|with|fun|function|type|module|open|rec|begin|end|of|and|or', {}),
+};
 
 /** Highlights `code` for `language`. Always safe: falls back to escaped plain text. */
 export function highlight(language, code) {
