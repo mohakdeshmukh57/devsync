@@ -31,6 +31,15 @@ async function getMedia() {
   return null;
 }
 
+// Fades the current screen out, then runs `fn` (logout, open meeting, leave…).
+function smooth(fn, ms = 260) {
+  const el = document.querySelector('.screen');
+  if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return fn();
+  el.classList.add('leaving');
+  return new Promise(res => setTimeout(() => res(fn()), ms));
+}
+const Screen = ({ children }) => <div className="screen">{children}</div>;
+
 function App() {
   const [session, setSession] = useState(undefined); // undefined = still checking
   const [profile, setProfile] = useState(null);
@@ -663,24 +672,24 @@ function App() {
 
   /* -------------------------------------------------------------- render */
   if (!supabase) return <Setup />;
-  if (session === undefined) return <Loading />;
-  if (session && screen === 'landing') return <Loading text="Opening your workspace…" />;
+  if (session === undefined) return <Screen key="boot"><Loading /></Screen>;
+  if (session && screen === 'landing') return <Screen key="opening"><Loading text="Opening your workspace…" /></Screen>;
   if (!session) {
-    return <Landing mode={authMode} setMode={m => { setAuthMode(m); setAuthError(''); setAuthNotice(''); }} authOpen={authOpen} setAuthOpen={setAuthOpen} submit={authSubmit} error={authError} notice={authNotice} busy={authBusy} />;
+    return <Screen key="landing"><Landing mode={authMode} setMode={m => { setAuthMode(m); setAuthError(''); setAuthNotice(''); }} authOpen={authOpen} setAuthOpen={setAuthOpen} submit={authSubmit} error={authError} notice={authNotice} busy={authBusy} /></Screen>;
   }
-  if (screen === 'tv' && meeting) return <TVScreen meeting={meeting} preview={preview} onRefresh={() => setPreviewKey(k => k + 1)} key={previewKey} />;
+  if (screen === 'tv' && meeting) return <Screen key="tv"><TVScreen meeting={meeting} preview={preview} onRefresh={() => setPreviewKey(k => k + 1)} key={previewKey} /></Screen>;
   if (screen === 'dashboard' || !meeting) {
     return (
-      <>
-        <Dashboard profile={profile} userId={userId} meetings={meetings} onCreate={createMeeting} onOpen={id => openMeeting(id, false)} onRename={renameMeeting} onDelete={deleteMeeting} onCapacity={changeCapacity} onLogout={logout}
+      <Screen key="dash">
+        <Dashboard profile={profile} userId={userId} meetings={meetings} onCreate={createMeeting} onOpen={id => smooth(() => openMeeting(id, false))} onRename={renameMeeting} onDelete={deleteMeeting} onCapacity={changeCapacity} onLogout={() => smooth(logout)}
           createOpen={createOpen} setCreateOpen={setCreateOpen} meetingName={meetingName} setMeetingName={setMeetingName} maxMembers={maxMembers} setMaxMembers={setMaxMembers} busy={busy} />
         {busy && <div className="busy-overlay"><div className="spinner" /></div>}
-      </>
+      </Screen>
     );
   }
 
   return (
-    <>
+    <Screen key="ws">
       <Workspace
         meeting={meeting} files={files} folders={folders} assets={assets} active={activeFile} second={secondFile} secondId={secondId} setSecondId={setSecondId}
         tabs={tabs} closeTab={closeTab} openFile={openFile} onContent={onContent} onSaved={onSaved} registry={registry}
@@ -694,10 +703,10 @@ function App() {
         chat={chat} sendChat={sendChat} inviteLink={`${location.origin}/meeting/${meeting.id}?invite=${meeting.invite_token}`}
         upload={upload} download={download} downloadOne={downloadOne} downloadAsset={downloadAsset} deleteAsset={deleteAsset}
         createFile={createFile} createFolder={createFolder} deleteFolder={deleteFolder} deleteFile={deleteFile} renameFile={renameFile} moveFile={moveFile} duplicateFile={duplicateFile}
-        runShell={runShell} openTV={() => window.open('/tv/' + meeting.id, '_blank', 'noopener,noreferrer')} leave={leave}
+        runShell={runShell} openTV={() => window.open('/tv/' + meeting.id, '_blank', 'noopener,noreferrer')} leave={() => smooth(leave)}
       />
       {busy && <div className="busy-overlay"><div className="spinner" /></div>}
-    </>
+    </Screen>
   );
 }
 

@@ -62,3 +62,82 @@ body{background:var(--bg-app)}
 .mc-cover span{position:absolute;right:16px;top:14px;font:600 13px 'JetBrains Mono',monospace;color:hsl(var(--h) 70% 80% / .55)}
 .meeting-card h3{font:700 19px 'Bricolage Grotesque',Inter;letter-spacing:-.02em}
 @media(max-width:700px){.dash-stats{grid-template-columns:1fr}.term{right:8px;bottom:8px;height:60vh}}
+
+/* ======================= motion ======================= */
+@keyframes ds-in{from{opacity:0;transform:translateY(14px)}}
+@keyframes ds-out{to{opacity:0;transform:translateY(-10px) scale(.992)}}
+@keyframes ds-pop{from{opacity:0;transform:translateY(12px) scale(.96)}}
+@keyframes ds-fade{from{opacity:0}}
+@keyframes ds-slide{from{opacity:0;transform:translateX(24px)}}
+@keyframes ds-bar{0%{transform:translateX(-100%)}100%{transform:translateX(260%)}}
+@keyframes ds-dot{0%,80%,100%{opacity:.2;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+@keyframes ds-ring{0%{transform:scale(.6);opacity:.5}100%{transform:scale(1.8);opacity:0}}
+@keyframes ds-quote{from{opacity:0;transform:translateY(8px)}}
+@keyframes ds-lay-a{from{opacity:.35;transform:scale(.985)}}
+@keyframes ds-lay-b{from{opacity:.35;transform:scale(.985)}}
+.screen{animation:ds-in .55s cubic-bezier(.22,1,.36,1) backwards}
+.screen.leaving{animation:ds-out .26s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
+.modal{animation:ds-fade .25s ease backwards;backdrop-filter:blur(6px)}
+.modal-card,.auth-card{animation:ds-pop .42s cubic-bezier(.22,1,.36,1) backwards}
+.toast{animation:ds-pop .35s cubic-bezier(.22,1,.36,1) backwards}
+.chat.ai-drawer,.chat.version-history,.palette,.layout-pop,.context{animation:ds-pop .3s cubic-bezier(.22,1,.36,1) backwards}
+.ws-side{animation:ds-slide .5s cubic-bezier(.22,1,.36,1) .1s backwards}
+.explorer{animation:ds-fade .5s ease backwards}
+.file{animation:ds-in .4s cubic-bezier(.22,1,.36,1) backwards}
+.file:nth-child(n+3){animation-delay:.04s}.file:nth-child(n+5){animation-delay:.08s}.file:nth-child(n+8){animation-delay:.12s}
+.meeting-card,.meeting-row,.dash-stats div{animation:ds-in .6s cubic-bezier(.22,1,.36,1) backwards}
+.meeting-card:nth-child(2),.dash-stats div:nth-child(2){animation-delay:.07s}.meeting-card:nth-child(3),.dash-stats div:nth-child(3){animation-delay:.14s}.meeting-card:nth-child(4){animation-delay:.21s}.meeting-card:nth-child(n+5){animation-delay:.28s}
+.dash-head{animation:ds-in .6s cubic-bezier(.22,1,.36,1) backwards}
+.btn,.hdr-btn,.pill,.icon,.tab,.file,.meeting-card,.meeting-row{transition:background .2s,color .2s,border-color .2s,box-shadow .25s,transform .25s cubic-bezier(.22,1,.36,1)}
+.btn:active,.hdr-btn:active,.pill:active{transform:scale(.97)}
+.ws-main{transition:grid-template-columns .45s cubic-bezier(.22,1,.36,1),grid-template-rows .45s cubic-bezier(.22,1,.36,1)}
+.ws-main.dragging{transition:none}
+.ws-main.rl0>section{animation:ds-lay-a .45s cubic-bezier(.22,1,.36,1)}.ws-main.rl1>section{animation:ds-lay-b .45s cubic-bezier(.22,1,.36,1)}
+.busy-overlay{animation:ds-fade .25s ease backwards;background:rgba(8,10,14,.55);backdrop-filter:blur(8px)}
+.spinner{width:34px;height:34px;border-width:3px}
+
+/* ======================= loading scene ======================= */
+.boot-scene{position:relative;overflow:hidden;background:radial-gradient(60% 50% at 50% 38%,rgba(111,134,255,.12),transparent),var(--bg-app);color:var(--text-primary)}
+.boot-ring{position:absolute;left:50%;top:38%;width:240px;height:240px;margin:-120px 0 0 -120px;border-radius:50%;border:1px solid rgba(111,134,255,.4);animation:ds-ring 3.2s ease-out infinite}.boot-ring.r2{animation-delay:1.6s}
+.boot-card{position:relative;display:grid;justify-items:center;gap:18px;max-width:440px;padding:0 24px;text-align:center}
+.boot-logo{display:grid;place-items:center;width:56px;height:56px;border-radius:16px;color:var(--accent-primary);background:var(--bg-surface-elevated);border:1px solid var(--border-default);box-shadow:0 12px 40px rgba(111,134,255,.25);animation:ds-pop .6s cubic-bezier(.22,1,.36,1) backwards}
+.boot-card h2{font:700 26px 'Bricolage Grotesque',Inter,sans-serif;letter-spacing:-.02em;color:#fff}
+.dots{display:inline-flex;gap:3px;margin-left:4px}.dots i{width:4px;height:4px;border-radius:50%;background:var(--accent-primary);animation:ds-dot 1.2s infinite}.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+.boot-bar{width:180px;height:3px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,.07)}.boot-bar i{display:block;width:40%;height:100%;border-radius:3px;background:var(--accent-primary);animation:ds-bar 1.3s ease-in-out infinite}
+.boot-card blockquote{margin-top:22px;padding-top:22px;border-top:1px solid var(--border-subtle);animation:ds-quote .9s cubic-bezier(.22,1,.36,1) .35s backwards}
+.boot-card blockquote p{font:italic 17px/1.55 'Bricolage Grotesque',Inter,sans-serif;color:#cfd6e3}
+.boot-card cite{display:block;margin-top:10px;font:500 12px 'JetBrains Mono',monospace;letter-spacing:.06em;color:var(--text-muted);text-transform:uppercase;font-style:normal}
+
+/* ======================= meeting title bar ======================= */
+.ws-bar{height:54px;padding:0 14px;gap:14px;background:linear-gradient(180deg,#12151b,#0e1015);border-bottom:1px solid var(--border-subtle)}
+.ws-title{flex:1;min-width:0;gap:10px}.ws-title .hdr-btn.solo{height:34px;padding:0 12px;border:1px solid var(--border-default);background:var(--bg-surface)}
+.ws-sep{width:1px;height:24px;background:var(--border-default)}
+.ws-name{--h:230;display:flex;align-items:center;gap:11px;min-width:0}
+.ws-glyph{flex:none;display:grid;place-items:center;width:34px;height:34px;border-radius:10px;color:hsl(var(--h) 80% 78%);background:linear-gradient(135deg,hsl(var(--h) 42% 22%),hsl(calc(var(--h) + 30) 40% 14%));border:1px solid hsl(var(--h) 40% 30% / .7)}
+.ws-name b{display:block;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 15px 'Bricolage Grotesque',Inter,sans-serif;letter-spacing:-.01em;line-height:1.2}
+.ws-status{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-muted);margin-top:1px}
+.ws-status i{width:7px;height:7px;border-radius:50%;background:#3ccf91;box-shadow:0 0 0 3px rgba(60,207,145,.15);animation:ds-dot 2.4s ease-in-out infinite}
+.ws-bar .cmd-search{width:340px;height:36px;justify-content:space-between;color:var(--text-muted);transition:border-color .2s,box-shadow .2s}.ws-bar .cmd-search:hover{border-color:var(--border-hover);box-shadow:0 0 0 3px var(--accent-subtle)}
+.ws-bar .hdr{flex:1;justify-content:flex-end;gap:8px}
+.ws-bar .hdr-group{padding:3px;border-radius:11px;background:var(--bg-surface);border:1px solid var(--border-subtle)}
+.ws-bar .hdr-btn.on{background:var(--accent-subtle);color:#b3c0ff}
+.layout-wrap{position:relative}
+.layout-pop{position:absolute;right:0;top:calc(100% + 10px);z-index:120;width:268px;padding:8px;border-radius:14px;background:var(--bg-surface-elevated);border:1px solid var(--border-default);box-shadow:0 24px 60px rgba(0,0,0,.6);transform-origin:top right}
+.lp-title{padding:6px 10px 8px;font:600 11px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted)}
+.layout-pop button{display:flex;align-items:center;gap:12px;width:100%;padding:9px 10px;border-radius:9px;font-size:12.5px;text-align:left;color:var(--text-secondary);transition:background .15s,color .15s}
+.layout-pop button:hover{background:var(--bg-surface-hover);color:#fff}.layout-pop button.on{background:var(--accent-subtle);color:#fff}.layout-pop button b{margin-left:auto;color:var(--accent-primary)}
+.lo{flex:none;display:flex;gap:2px;width:38px;height:26px;padding:3px;border-radius:6px;background:#0a0c10;border:1px solid var(--border-default)}
+.lo i{flex:1;border-radius:2px;background:#3a4256}.lo i:first-child{background:var(--accent-primary)}
+.lo-right{flex-direction:row-reverse}.lo-top{flex-direction:column}.lo-bottom{flex-direction:column-reverse}
+
+/* ======================= layouts ======================= */
+.ws-main .ws-editor{order:1}.ws-main .ws-output{order:3}
+.ws-main.lay-bottom .ws-editor,.ws-main.lay-right .ws-editor{order:3}
+.ws-main .ws-handle{order:2}
+.ws-main.lay-bottom .ws-output,.ws-main.lay-right .ws-output{order:1}
+.ws-main.lay-left .ws-handle,.ws-main.lay-right .ws-handle{width:6px;height:auto;cursor:col-resize}
+.ws-main.lay-left .ws-handle::after,.ws-main.lay-right .ws-handle::after{left:1px;top:50%;width:4px;height:32px;transform:translateY(-50%)}
+.ws-main.lay-left .ws-output,.ws-main.lay-right .ws-output{border-left:0}
+
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0s!important;transition-duration:.01ms!important}}
+@media(max-width:1180px){.ws-bar .cmd-search{width:220px}}
