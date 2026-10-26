@@ -10,6 +10,7 @@ import Landing from './components/Landing';
 import Dashboard from './components/Dashboard';
 import Workspace, { TVScreen } from './components/Workspace';
 import './styles.css';
+import './app-theme.css';
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
