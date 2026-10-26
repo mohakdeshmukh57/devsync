@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { Brand } from './common';
+import AuthFlow from './AuthFlow';
 import { FEATURES } from '../lib/constants';
 import '../landing.css';
 
@@ -158,23 +159,7 @@ export default function Landing({ mode, setMode, authOpen, setAuthOpen, submit, 
         <p className="copy">&copy; {new Date().getFullYear()} DevSync. Built for developers.</p>
       </div></footer>
 
-      {authOpen && (
-        <div className="modal auth-modal" onMouseDown={e => { if (e.target === e.currentTarget) setAuthOpen(false); }}>
-          <form className="auth-card" onSubmit={submit}>
-            <Brand />
-            <h2>{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
-            <p>{mode === 'login' ? 'Sign in to your workspace.' : 'Start with an empty workspace and invite your team when you are ready.'}</p>
-            {mode === 'register' && <label>Name<input name="name" autoComplete="name" /></label>}
-            <label>Email<input name="email" type="email" required autoComplete="email" /></label>
-            <label>Password<input name="password" type="password" minLength="6" required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>
-            {error && <div className="error">{error}</div>}
-            {notice && <div className="notice">{notice}</div>}
-            <button className="btn primary full" disabled={busy}>{busy ? 'Working…' : mode === 'login' ? 'Sign In' : 'Create Account'}</button>
-            <button type="button" className="link" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Need an account? Create one' : 'Already have an account? Sign in'}</button>
-            <button type="button" className="link" onClick={() => setAuthOpen(false)}>Cancel</button>
-          </form>
-        </div>
-      )}
+      {authOpen && <AuthFlow mode={mode} setMode={setMode} setAuthOpen={setAuthOpen} submit={submit} error={error} notice={notice} busy={busy} />}
     </div>
   );
 }
