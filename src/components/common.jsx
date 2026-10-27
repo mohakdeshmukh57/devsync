@@ -29,16 +29,11 @@ export function Toasts() {
   return t ? <div className="toast" role="status">{t}</div> : null;
 }
 
-export function Brand() {
+export function Brand({ dark }) {
   return (
-    <div className="brand">
-      <span className="logo">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="16 18 22 12 16 6" />
-          <polyline points="8 6 2 12 8 18" />
-        </svg>
-      </span>
-      DevSync
+    <div className={'brand' + (dark ? ' on-paper' : '')}>
+      <svg className="mark" width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M3 3l9 20 2.6-8.4L23 12z" fill="#ff5a36" stroke="#14120d" strokeWidth="1.8" strokeLinejoin="round" /><path d="M13 2l9 20 2-6.4" fill="none" stroke="currentColor" strokeWidth="0" /></svg>
+      <b>devsync</b>
     </div>
   );
 }

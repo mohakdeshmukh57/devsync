@@ -72,27 +72,25 @@ export default function AuthFlow({ mode, setMode, setAuthOpen, submit, error, no
   return (
     <div className={'af-backdrop' + (closing ? ' out' : '')} onMouseDown={e => { if (e.target === e.currentTarget) close(); }}>
       <form className="af-card" onSubmit={onSubmit} noValidate>
-        <div className="af-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(pct)}><i style={{ width: pct + '%' }} /></div>
+        <div className="af-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(pct)}>
+          <div className="af-segs">{steps.map((_, k) => <i key={k} className={step === 'done' || k < i ? 'full' : k === i ? 'now' : ''} />)}</div>
+          <span>{step === 'done' ? 'DONE' : `STEP ${i + 1}/${steps.length} — ${LABEL[step].toUpperCase()}`}</span>
+        </div>
         <button type="button" className="af-x" onClick={close} aria-label="Close">&times;</button>
 
         <aside className="af-side">
           <Brand />
-          <h2>{mode === 'login' ? 'Good to see you again.' : 'Build with your team, live.'}</h2>
-          <p>{mode === 'login' ? 'Your workspaces are right where you left them.' : 'One link, one workspace — code, preview, talk and chat together.'}</p>
-          <div className="af-mini" aria-hidden="true">
-            <div className="af-mini-bar"><i /><i /><i /><b>team-standup</b></div>
-            <div className="af-mini-body">
-              {[72, 46, 86, 58, 34].map((w, k) => <span key={k} style={{ '--w': w + '%', '--d': k * 0.18 + 's' }} />)}
-              <em className="c1">Sarah</em><em className="c2">Alex</em>
-            </div>
+          <div className="af-lanyard"><span /></div>
+          <div className="af-badge">
+            <div className="af-hole" />
+            <div className="af-hello"><small>HELLO</small><b>{mode === 'login' ? 'welcome back' : 'my name is'}</b></div>
+            <div className="af-name"><span key={v.name}>{mode === 'login' ? (v.email.split('@')[0] || 'friend').slice(0, 14) : (v.name.trim().split(' ')[0] || 'you').slice(0, 14)}</span></div>
+            <div className="af-meta"><i />{(v.email || 'you@email.com').slice(0, 26)}<em>{mode === 'login' ? 'MEMBER' : 'NEW'}</em></div>
           </div>
-          <ul>{['Real-time editing with live cursors', 'Video calls and chat built in', 'Run 30+ languages in the browser'].map(t => <li key={t}>{t}</li>)}</ul>
+          <ul>{['Live cursors with your name', 'Video, chat and run built in', '30+ languages, no installs'].map(t => <li key={t}>{t}</li>)}</ul>
         </aside>
 
         <section className="af-main">
-          {step !== 'done' && (
-            <ol className="af-dots">{steps.map((s, k) => <li key={s} className={k < i ? 'done' : k === i ? 'now' : ''}><b>{k < i ? '✓' : k + 1}</b><span>{LABEL[s]}</span></li>)}</ol>
-          )}
           <div className={'af-step ' + dir} key={step}>
             {step !== 'method' && step !== 'done' && <button type="button" className="af-back" onClick={back}>&larr; Back</button>}
             {step === 'done' ? (
