@@ -14,9 +14,9 @@
   --bg-muted: #1e293b;
   --bg-code: #070a12;
 
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.1);
-  --border-hover: rgba(255, 255, 255, 0.18);
+  --border-subtle: rgba(var(--ov), 0.06);
+  --border-default: rgba(var(--ov), 0.1);
+  --border-hover: rgba(var(--ov), 0.18);
   --border-active: rgba(255, 90, 54, 0.6);
 
   --text-primary: #f8fafc;
@@ -80,11 +80,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(var(--ov), 0.12);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(var(--ov), 0.22);
 }
 
 button, input, select, textarea {
@@ -237,7 +237,7 @@ a {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border-subtle);
-  background: rgba(8, 11, 17, 0.85);
+  background: color-mix(in srgb, var(--bg-app) 85%, transparent);
   backdrop-filter: blur(12px);
   position: sticky;
   top: 0;
@@ -398,7 +398,7 @@ a {
   padding: 12px;
   font-family: var(--font-mono);
   font-size: 11px;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   line-height: 1.6;
 }
 
@@ -1421,7 +1421,7 @@ a {
   border: none;
   outline: none;
   resize: none;
-  color: #e2e8f0;
+  color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.7;
@@ -1464,7 +1464,7 @@ a {
   height: 4px;
   transform: translateX(-50%);
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(var(--ov), 0.2);
 }
 
 .ws-handle:hover, .ws-main.dragging .ws-handle {
@@ -1577,7 +1577,7 @@ a {
   line-height: 1.5;
 }
 
-.log.log { color: #cbd5e1; }
+.log.log { color: var(--text-secondary); }
 .log.info { color: #ff8a6b; }
 .log.warn { color: #fbbf24; }
 .log.error { color: #f87171; background: var(--danger-subtle); }
@@ -1861,7 +1861,7 @@ a {
 }
 
 .term-line.cmd { color: var(--accent-primary); }
-.term-line.out { color: #cbd5e1; }
+.term-line.out { color: var(--text-secondary); }
 .term-line.error { color: #f87171; }
 
 .ai-drawer {
@@ -1901,7 +1901,7 @@ a {
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 11px;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   white-space: pre-wrap;
   max-height: 180px;
   overflow: auto;
@@ -2047,7 +2047,7 @@ a {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(var(--ov), 0.1);
   border-top-color: var(--accent-primary);
   animation: spin 0.8s linear infinite;
 }
@@ -2109,7 +2109,7 @@ a {
   border-radius: var(--radius-md);
   font-family: var(--font-mono);
   font-size: 11.5px;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   overflow: auto;
 }
 

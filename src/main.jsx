@@ -11,6 +11,7 @@ import Dashboard from './components/Dashboard';
 import Workspace, { TVScreen } from './components/Workspace';
 import './styles.css';
 import './app-theme.css';
+import { applyTheme } from './lib/theme';
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
@@ -42,6 +43,7 @@ const Screen = ({ children }) => <div className="screen">{children}</div>;
 
 function App() {
   const [session, setSession] = useState(undefined); // undefined = still checking
+  useEffect(() => { applyTheme(session ? 'dark' : 'light'); }, [!!session]);
   const [profile, setProfile] = useState(null);
   const [screen, setScreen] = useState('landing');
   const [authMode, setAuthMode] = useState('login');
