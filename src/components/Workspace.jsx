@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { CollabEditor } from './Editor';
 import Terminal from './Terminal';
-import { Modal } from './common';
+import { Modal, ThemeToggle } from './common';
 import { LANGS, langFromName } from '../lib/constants';
 import { toast } from '../lib/supabase';
 
@@ -91,16 +91,35 @@ export default function Workspace(p) {
 
   const startDrag = e => {
     e.preventDefault();
+    const handle = e.currentTarget;
+    try { handle.setPointerCapture(e.pointerId); } catch { /* older browsers */ }
     setDragging(true);
+    document.body.classList.add('resizing');
+    const stacked = layout === 'top' || layout === 'bottom';
+    const swap = layout === 'bottom' || layout === 'right';
+    let raf = 0;
     const move = ev => {
-      const r = mainRef.current?.getBoundingClientRect();
-      if (!r) return;
-      const raw = layout === 'top' || layout === 'bottom' ? (ev.clientY - r.top) / r.height : (ev.clientX - r.left) / r.width;
-      setRatio(Math.min(0.8, Math.max(0.2, layout === 'bottom' || layout === 'right' ? 1 - raw : raw)));
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const r = mainRef.current?.getBoundingClientRect();
+        if (!r) return;
+        const raw = stacked ? (ev.clientY - r.top) / r.height : (ev.clientX - r.left) / r.width;
+        const lo = stacked ? 0.2 : 0.25;
+        setRatio(Math.min(1 - lo, Math.max(lo, swap ? 1 - raw : raw)));
+      });
     };
-    const up = () => { setDragging(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    const up = () => {
+      cancelAnimationFrame(raf);
+      setDragging(false);
+      document.body.classList.remove('resizing');
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+      try { handle.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
   };
   const showChat = () => { setSideTab('chat'); setSideOpen(true); };
 
@@ -261,6 +280,7 @@ export default function Workspace(p) {
             <button className="hdr-btn" onClick={() => p.setFocusMode(v => !v)} title="Focus mode" aria-pressed={p.focusMode}>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="10" height="10" rx="1"/><path d="M1 5V2a1 1 0 011-1h3M11 1h3a1 1 0 011 1v3M15 11v3a1 1 0 01-1 1h-3M5 15H2a1 1 0 01-1-1v-3"/></svg>
             </button>
+            <ThemeToggle />
             <button className="hdr-btn" onClick={() => setSettingsOpen(true)} title="Editor settings">
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/></svg>
             </button>

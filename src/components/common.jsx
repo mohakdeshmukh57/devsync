@@ -1,3 +1,4 @@
+import { useTheme, toggleTheme } from '../lib/theme';
 import React, { useEffect, useState } from 'react';
 
 export function Modal({ title, close, children, onSubmit }) {
@@ -78,5 +79,17 @@ VITE_TURN_URL / VITE_TURN_USERNAME / VITE_TURN_CREDENTIAL   (video calls on stri
 JUDGE0_URL / JUDGE0_HEADERS_JSON                            (run Java, C++, Go, Rust, … and the terminal)
 AI_BASE_URL / AI_API_KEY / AI_MODEL                         (AI assistant)`}</pre>
     </div></div>
+  );
+}
+
+export function ThemeToggle({ className = 'hdr-btn' }) {
+  const t = useTheme();
+  const light = t === 'light';
+  return (
+    <button type="button" className={className + ' theme-toggle'} onClick={toggleTheme} title={light ? 'Switch to dark mode' : 'Switch to light mode'} aria-label={light ? 'Switch to dark mode' : 'Switch to light mode'}>
+      {light
+        ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>
+        : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>}
+    </button>
   );
 }

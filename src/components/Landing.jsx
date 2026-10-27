@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Brand } from './common';
+import { Brand, ThemeToggle } from './common';
 import AuthFlow from './AuthFlow';
 import { FEATURES } from '../lib/constants';
 import '../landing.css';
@@ -121,7 +121,7 @@ export default function Landing({ mode, setMode, authOpen, setAuthOpen, submit, 
       <nav className="lp-nav"><div className="wrap">
         <a href="#top"><Brand dark /></a>
         <div className="links"><a href="#features">Features</a><a href="#workspace">Inside</a><a href="#how">How it works</a><a href="#contact">Contact</a></div>
-        <div className="acts"><button className="txt" onClick={() => open('login')}>Log in</button><button className="btn ink" onClick={() => open('register')}>Start free</button></div>
+        <div className="acts"><ThemeToggle className="tgl" /><button className="txt" onClick={() => open('login')}>Log in</button><button className="btn ink" onClick={() => open('register')}>Start free</button></div>
       </div></nav>
 
       <header className="wrap lp-hero">

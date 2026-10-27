@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Brand, Modal } from './common';
+import { Brand, Modal, ThemeToggle } from './common';
 import { toast } from '../lib/supabase';
 
 export default function Dashboard({ profile, userId, meetings, onCreate, onOpen, onRename, onDelete, onCapacity, onLogout, createOpen, setCreateOpen, meetingName, setMeetingName, maxMembers, setMaxMembers, busy }) {
@@ -23,7 +23,7 @@ export default function Dashboard({ profile, userId, meetings, onCreate, onOpen,
     <div className="app">
       <header className="bar">
         <Brand />
-        <div className="user"><span>{profile?.name}</span><span className="avatar">{(profile?.name || 'D')[0].toUpperCase()}</span><button className="btn" onClick={onLogout}>Log out</button></div>
+        <div className="user"><span>{profile?.name}</span><span className="avatar">{(profile?.name || 'D')[0].toUpperCase()}</span><ThemeToggle className="btn theme-sq" /><button className="btn" onClick={onLogout}>Log out</button></div>
       </header>
       <main className="dash">
         <div className="dash-head">
