@@ -17,17 +17,17 @@
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-default: rgba(255, 255, 255, 0.1);
   --border-hover: rgba(255, 255, 255, 0.18);
-  --border-active: rgba(59, 130, 246, 0.6);
+  --border-active: rgba(255, 90, 54, 0.6);
 
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
   --text-inverse: #030712;
 
-  --accent-primary: #3b82f6;
-  --accent-primary-hover: #2563eb;
-  --accent-subtle: rgba(59, 130, 246, 0.12);
-  --accent-glow: rgba(59, 130, 246, 0.25);
+  --accent-primary: #ff5a36;
+  --accent-primary-hover: #e8451f;
+  --accent-subtle: rgba(255, 90, 54, 0.12);
+  --accent-glow: rgba(255, 90, 54, 0.25);
 
   --success: #10b981;
   --success-subtle: rgba(16, 185, 129, 0.12);
@@ -281,7 +281,7 @@ a {
   padding: 4px 10px;
   border-radius: 9999px;
   background: var(--accent-subtle);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(255, 90, 54, 0.2);
   color: var(--accent-primary);
   font-size: 12px;
   font-weight: 500;
@@ -298,7 +298,7 @@ a {
 }
 
 .gradient {
-  background: linear-gradient(135deg, #60a5fa 0%, #38bdf8 50%, #818cf8 100%);
+  background: linear-gradient(135deg, #ff8a6b 0%, #38bdf8 50%, #818cf8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -1034,7 +1034,7 @@ a {
 .hdr-btn.accent {
   background: var(--accent-subtle);
   color: var(--accent-primary);
-  border-color: rgba(59, 130, 246, 0.3);
+  border-color: rgba(255, 90, 54, 0.3);
 }
 
 .hdr-btn.only-sm, .hdr-btn.only-narrow {
@@ -1578,7 +1578,7 @@ a {
 }
 
 .log.log { color: #cbd5e1; }
-.log.info { color: #60a5fa; }
+.log.info { color: #ff8a6b; }
 .log.warn { color: #fbbf24; }
 .log.error { color: #f87171; background: var(--danger-subtle); }
 
@@ -1617,7 +1617,7 @@ a {
 }
 
 .call-tile.local {
-  border-color: rgba(59, 130, 246, 0.4);
+  border-color: rgba(255, 90, 54, 0.4);
 }
 
 .call-tile video {
@@ -1744,7 +1744,7 @@ a {
 .msg.me {
   align-self: flex-end;
   background: var(--accent-subtle);
-  border-color: rgba(59, 130, 246, 0.25);
+  border-color: rgba(255, 90, 54, 0.25);
 }
 
 .chat-send {
