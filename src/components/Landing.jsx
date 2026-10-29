@@ -17,7 +17,7 @@ const hl = code => {
   out.push(code.slice(last));
   return out;
 };
-const Cursor = ({ name, color }) => <span className="cur" style={{ '--c': color }}><em>{name}</em></span>;
+const Cursor = ({ name, color }) => <span className="cur" style={{ '--c': color }}>{name && <em>{name}</em>}</span>;
 const Av = ({ n, c = '#ff5a36', className = '' }) => <div className={`av ${className}`} style={{ '--a': c }}>{n}</div>;
 const Win = ({ title, live, children, right }) => (
   <div className="win"><div className="win-bar"><i /><i /><i /><span>{title}</span>{live && <span className="live">LIVE</span>}{right}</div>{children}</div>
@@ -96,7 +96,7 @@ function Typer({ words }) {
     id = setTimeout(tick, 1800);
     return () => clearTimeout(id);
   }, []);
-  return <span className="typer">{t}<Cursor name="Mira" color={MINT} /></span>;
+  return <span className="typer">{t}<Cursor color={MINT} /></span>;
 }
 const Pointer = ({ c, name, className }) => (
   <div className={'roam ' + className} aria-hidden="true"><svg width="22" height="22" viewBox="0 0 26 26"><path d="M3 3l9 20 2.6-8.4L23 12z" fill={c} stroke="#14120d" strokeWidth="1.8" strokeLinejoin="round" /></svg><em style={{ background: c }}>{name}</em></div>
@@ -138,7 +138,7 @@ export default function Landing({ mode, setMode, authOpen, setAuthOpen, submit, 
         <Pointer c={SKY} name="Dev" className="r1" /><Pointer c={PINK} name="Sam" className="r2" />
       </header>
 
-      <div className="marquee" aria-hidden="true"><div>{[...LANGS, ...LANGS, ...LANGS].map((l, i) => <span key={i}>{l}<b>✱</b></span>)}</div></div>
+      <div className="marquee" aria-hidden="true"><div>{[...LANGS, ...LANGS, ...LANGS].map((l, i) => <span key={i}>{l}<b><svg width="20" height="20" viewBox="0 0 26 26"><path d="M3 3l9 20 2.6-8.4L23 12z" fill="#ff5a36" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" /></svg></b></span>)}</div></div>
 
       <section className="wrap" id="features">
         <div className="lp-head" data-r><span className="kicker">THE ROOM, ROOM BY ROOM</span><h2>Everything your team needs, already open.</h2></div>
