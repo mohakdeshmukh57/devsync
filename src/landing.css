@@ -34,7 +34,7 @@
 .lp-hero h1,.lp-hero .kicker,.hero-grid>div:first-child{animation:lp-up .8s cubic-bezier(.22,1,.36,1) backwards}.lp-hero h1{animation-delay:.1s}.hero-grid>div:first-child{animation-delay:.25s}
 /* marquee */
 .marquee{overflow:hidden;background:var(--ink);color:var(--paper);border-block:2px solid var(--ink);transform:rotate(-1deg);margin:10px -20px 60px;padding:14px 0}
-.marquee div{display:flex;width:max-content;animation:lp-m 40s linear infinite}.marquee span{font:800 26px var(--dsp);font-stretch:125%;text-transform:uppercase;letter-spacing:-.02em;white-space:nowrap}.marquee b{margin:0 26px;color:var(--tom)}
+.marquee div{display:flex;width:max-content;animation:lp-m 40s linear infinite}.marquee span{font:800 26px var(--dsp);font-stretch:125%;text-transform:uppercase;letter-spacing:-.02em;white-space:nowrap}.marquee b{display:inline-grid;vertical-align:middle;margin:0 26px;transform:translateY(-2px)}
 @keyframes lp-m{to{transform:translateX(-33.33%)}}
 /* sections */
 .lp-head{padding:80px 0 20px}.lp-head h2{font-size:clamp(36px,5.4vw,78px);margin-top:16px;max-width:900px}

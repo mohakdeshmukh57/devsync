@@ -198,3 +198,6 @@ html.theme-fade *,html.theme-fade *::before,html.theme-fade *::after{transition:
 .ws-main.lay-left .ws-handle::before,.ws-main.lay-right .ws-handle::before{inset:0 -5px}
 .ws-main.dragging iframe,.ws-main.dragging .preview-body{pointer-events:none}
 body.resizing{user-select:none;-webkit-user-select:none}body.resizing *{cursor:inherit!important}
+
+/* output panel keeps the same dark palette in both themes */
+.ws-output{--bg-app:#12110d;--bg-base:#15140f;--bg-surface:#1a1812;--bg-surface-elevated:#211e16;--bg-surface-hover:#28241b;--bg-muted:#302b20;--bg-code:#100f0b;--bg-deep:#0e0d0a;--ov:255,255,255;--border-subtle:rgba(239,233,219,.08);--border-default:rgba(239,233,219,.14);--border-hover:rgba(239,233,219,.28);--text-primary:#efe9db;--text-secondary:#b3ab97;--text-muted:#7d7662;--accent-text:#ffb199;color-scheme:dark}
